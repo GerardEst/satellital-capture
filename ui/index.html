@@ -25,6 +25,12 @@ button:disabled { background: #555; cursor: not-allowed; }
 .crs-row { display: flex; gap: 8px; align-items: center; }
 .crs-row select { flex: 1; }
 .crs-row span { font-size: 11px; color: #666; white-space: nowrap; }
+#zonePicker { display: none; margin-top: -4px; }
+#zonePicker input { width: 60px; text-align: center; padding: 6px 4px; }
+#zonePicker select { width: auto; padding: 6px 8px; }
+#zonePicker label { margin: 0; font-size: 11px; }
+#zoneName { font-size: 12px; color: #888; margin-left: 4px; flex: 1; }
+.zone-row { display: flex; gap: 8px; align-items: center; }
 #status { font-size: 12px; min-height: 40px; padding: 8px; border-radius: 4px; }
 #status.error { background: #3a1a1a; color: #e94560; }
 #status.success { background: #1a3a1a; color: #4ecca3; }
@@ -46,15 +52,24 @@ button:disabled { background: #555; cursor: not-allowed; }
   <div class="crs-row">
     <select id="crs">
       <option value="">Auto (WGS 84 lat/lon)</option>
-      <option value="EPSG:32631">UTM zone 31N (EPSG:32631)</option>
-      <option value="EPSG:25831">ETRS89 / UTM 31N (EPSG:25831)</option>
-      <option value="EPSG:3857">Web Mercator (EPSG:3857)</option>
-      <option value="EPSG:32630">UTM zone 30N (EPSG:32630)</option>
-      <option value="EPSG:32632">UTM zone 32N (EPSG:32632)</option>
-      <option value="EPSG:32633">UTM zone 33N (EPSG:32633)</option>
-      <option value="EPSG:32634">UTM zone 34N (EPSG:32634)</option>
+      <option value="WGS84">WGS 84 lat/lon</option>
+      <option value="UTM">UTM</option>
+      <option value="ETRS89">ETRS89 / UTM</option>
+      <option value="EPSG:3857">Web Mercator</option>
     </select>
     <span id="crsNote"></span>
+  </div>
+
+  <div id="zonePicker">
+    <div class="zone-row">
+      <label>Zone</label>
+      <input id="utmZone" type="number" value="31" min="1" max="60">
+      <select id="utmHemisphere">
+        <option value="N" selected>N</option>
+        <option value="S">S</option>
+      </select>
+      <span id="zoneName"></span>
+    </div>
   </div>
 
   <label>Zoom level</label>
@@ -90,6 +105,35 @@ button:disabled { background: #555; cursor: not-allowed; }
 <script src="https://unpkg.com/leaflet@1.9/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet-draw@1.0/dist/leaflet.draw.js"></script>
 <script>
+const ZONES = {
+ // Europe / Atlantic
+ 29: 'UK, Ireland', 30: 'Spain, France, Algeria',
+ 31: 'Spain, Catalonia, France', 32: 'Italy, Germany, Tunisia',
+ 33: 'Italy, Austria, Poland', 34: 'Greece, Turkey, Balkans',
+ 35: 'Russia, Middle East', 36: 'East Africa, Middle East',
+ 37: 'East Africa', 38: 'Kazakhstan, Middle East',
+ // Americas
+ 10: 'US West Coast', 11: 'US Rockies', 12: 'US Midwest',
+ 13: 'US East Coast', 14: 'Central America', 15: 'Central America',
+ 16: 'US Southeast', 17: 'US East Coast, Caribbean',
+ 18: 'US Northeast, Canada', 19: 'Canada East',
+ 20: 'Canada, Greenland', 21: 'Brazil, Atlantic',
+ 22: 'Brazil, Argentina', 23: 'Brazil', 24: 'Brazil',
+ 25: 'South Atlantic', 26: 'South Atlantic',
+ // Asia / Pacific
+ 42: 'China East', 43: 'China, India', 44: 'India, Nepal',
+ 45: 'India, Bangladesh', 46: 'China, Myanmar', 47: 'Thailand, Malaysia',
+ 48: 'Vietnam, Indonesia', 49: 'Philippines, Indonesia',
+ 50: 'Australia West', 51: 'Australia', 52: 'New Zealand',
+ 53: 'Japan East', 54: 'Japan, Russia', 55: 'Japan, Russia',
+ 56: 'Australia East', 57: 'New Zealand East',
+};
+
+function zoneName(zone, hemi) {
+  const name = ZONES[zone] || '';
+  return name ? `— ${name} ${hemi}` : `Zone ${zone}${hemi}`;
+}
+
 const map = L.map('map').setView([41.39, 2.18], 14);
 L.tileLayer('https://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
   maxZoom: 22, subdomains: ['mt0','mt1','mt2','mt3'],
@@ -110,38 +154,72 @@ const drawControl = new L.Control.Draw({
 map.addControl(drawControl);
 
 let corners = null;
+let userSetCrs = false;
 const coordsInput = document.getElementById('coordsInput');
 const crsSelect = document.getElementById('crs');
 const crsNote = document.getElementById('crsNote');
+const zonePicker = document.getElementById('zonePicker');
+const utmZone = document.getElementById('utmZone');
+const utmHemisphere = document.getElementById('utmHemisphere');
+const zoneNameEl = document.getElementById('zoneName');
 const captureBtn = document.getElementById('captureBtn');
 const statusEl = document.getElementById('status');
 
-function getCrs() { return crsSelect.value || null; }
+function updateZonePicker() {
+  const crs = crsSelect.value;
+  const show = crs === 'UTM' || crs === 'ETRS89';
+  zonePicker.style.display = show ? 'block' : 'none';
+  zoneNameEl.textContent = zoneName(parseInt(utmZone.value), utmHemisphere.value);
+}
 
-let userSetCrs = false; // true if user manually changed the CRS
+utmZone.addEventListener('input', () => {
+  zoneNameEl.textContent = zoneName(parseInt(utmZone.value) || 31, utmHemisphere.value);
+  if (userSetCrs) updateFromInput();
+});
+utmHemisphere.addEventListener('change', () => {
+  zoneNameEl.textContent = zoneName(parseInt(utmZone.value), utmHemisphere.value);
+  if (userSetCrs) updateFromInput();
+});
+
+// Build EPSG code from selections
+function getCrs() {
+  const sel = crsSelect.value;
+  if (!sel) return null; // auto
+  if (sel === 'WGS84') return 'EPSG:4326';
+  if (sel === 'EPSG:3857') return 'EPSG:3857';
+  if (sel === 'UTM') {
+    const z = parseInt(utmZone.value) || 31;
+    const h = utmHemisphere.value;
+    return h === 'S' ? `EPSG:327${String(z).padStart(2,'0')}` : `EPSG:326${String(z).padStart(2,'0')}`;
+  }
+  if (sel === 'ETRS89') {
+    const z = parseInt(utmZone.value) || 31;
+    return `EPSG:258${String(z).padStart(2,'0')}`;
+  }
+  return null;
+}
+
+function isWgs84() {
+  const sel = crsSelect.value;
+  return !sel || sel === 'WGS84';
+}
 
 function detectCRSFromValues(pairs) {
-  // pairs: [[a0,b0], [a1,b1], [a2,b2], [a3,b3]]
   const aVals = pairs.map(p => p[0]), bVals = pairs.map(p => p[1]);
   const maxAbs = Math.max(...aVals.map(Math.abs), ...bVals.map(Math.abs));
 
-  // WGS84: lat in [-90,90], lon in [-180,180]
   if (aVals.every(v => v >= -90 && v <= 90) && bVals.every(v => v >= -180 && v <= 180)) {
-    return '';
+    return 'WGS84';
   }
-  // UTM: easting in [100k, 900k], northing in [0, 10M]
   if (aVals.every(v => v >= 100000 && v <= 900000) && bVals.every(v => v >= 0 && v <= 10000000)) {
-    return 'utm';
+    return 'UTM';
   }
-  // Web Mercator: values in Mercator world bounds, at least one > 180
   if (maxAbs > 180 && aVals.every(v => v >= -20037509 && v <= 20037509) &&
       bVals.every(v => v >= -20037509 && v <= 20037509)) {
     return 'EPSG:3857';
   }
-  return null; // can't detect
+  return null;
 }
-
-function isWgs84() { return !crsSelect.value || crsSelect.value === 'EPSG:4326'; }
 
 function parseCoords(text) {
   const parts = text.trim().split(/\s+/);
@@ -152,7 +230,6 @@ function parseCoords(text) {
     if (pair.length !== 2) return null;
     const a = parseFloat(pair[0]), b = parseFloat(pair[1]);
     if (isNaN(a) || isNaN(b)) return null;
-    // For WGS84, enforce lat/lon bounds. For other CRS, accept any numeric pair.
     if (isWgs84()) {
       if (a < -90 || a > 90 || b < -180 || b > 180) return null;
     }
@@ -175,7 +252,6 @@ function drawFromCoords(cs) {
   statusEl.className = 'info';
   statusEl.textContent = 'Rectangle set. Ready to capture.';
 
-  // Center map: WGS84 directly, non-WGS84 via /bounds endpoint
   if (isWgs84()) {
     map.fitBounds(bounds.pad(0.2));
   } else {
@@ -197,9 +273,7 @@ async function centerMapFromServer(cs) {
     });
     if (!resp.ok) return;
     const b = await resp.json();
-    map.fitBounds(L.latLngBounds(
-      [b.south, b.west], [b.north, b.east]
-    ).pad(0.2));
+    map.fitBounds(L.latLngBounds([b.south, b.west], [b.north, b.east]).pad(0.2));
   } catch (e) { /* non-critical */ }
 }
 
@@ -207,7 +281,6 @@ function updateFromInput() {
   const text = coordsInput.value.trim();
   if (!text) return;
 
-  // Raw parse: just check 4 numeric pairs (no CRS bounds)
   const parts = text.split(/\s+/);
   if (parts.length !== 4) { invalidate('Needs exactly 4 pairs'); return; }
   const raw = [];
@@ -219,28 +292,24 @@ function updateFromInput() {
     raw.push([a, b]);
   }
 
-  // Auto-detect CRS (unless user explicitly set it)
   if (!userSetCrs) {
     const detected = detectCRSFromValues(raw);
-    if (detected === 'utm') {
-      // Can't detect zone — leave user's current selection or default to 31N
-      if (!crsSelect.value || !crsSelect.value.startsWith('EPSG:326')) {
-        crsSelect.value = 'EPSG:32631';
-      }
-      crsNote.textContent = 'UTM detected — select your zone above';
+    if (detected === 'UTM') {
+      crsSelect.value = 'UTM';
+      crsNote.textContent = 'detected — check zone above';
     } else if (detected === 'EPSG:3857') {
       crsSelect.value = 'EPSG:3857';
-      crsNote.textContent = 'Web Mercator detected';
-    } else if (detected === '') {
+      crsNote.textContent = 'detected';
+    } else if (detected === 'WGS84') {
       crsSelect.value = '';
       crsNote.textContent = '';
     } else {
       invalidate('Cannot detect coordinate system — select manually above');
       return;
     }
+    updateZonePicker();
   }
 
-  // Now validate with CRS bounds
   const cs = parseCoords(text);
   if (cs) {
     coordsInput.classList.remove('invalid');
@@ -263,9 +332,12 @@ function invalidate(msg) {
 coordsInput.addEventListener('input', updateFromInput);
 crsSelect.addEventListener('change', function() {
   userSetCrs = true;
-  crsNote.textContent = crsSelect.value ? 'Manually set' : '';
+  crsNote.textContent = 'manually set';
+  updateZonePicker();
   updateFromInput();
 });
+
+zonePicker.addEventListener('change', updateFromInput);
 
 map.on(L.Draw.Event.CREATED, function(e) {
   drawnItems.clearLayers();
@@ -275,9 +347,9 @@ map.on(L.Draw.Event.CREATED, function(e) {
   corners = [[sw.lat, sw.lng], [ne.lat, sw.lng], [ne.lat, ne.lng], [sw.lat, ne.lng]];
   coordsInput.value = corners.map(c => c[0].toFixed(6) + ',' + c[1].toFixed(6)).join(' ');
   coordsInput.classList.remove('invalid');
-  // Drawing on map always produces WGS84
   crsSelect.value = '';
   crsNote.textContent = '';
+  zonePicker.style.display = 'none';
   userSetCrs = false;
   captureBtn.disabled = false;
   captureBtn.textContent = 'Capture';
