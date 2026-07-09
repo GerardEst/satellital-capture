@@ -56,13 +56,16 @@ python3 straighten_sat.py \
 
 A browser-based interface is included:
 
-```bash
-# One-time setup (systemd)
-sudo cp deploy/satellital-capture.service /etc/systemd/system/
-sudo systemctl enable --now satellital-capture
+**Live instance:** [satellitalcapture.gerardesteve.com](https://satellitalcapture.gerardesteve.com)
 
-# Manual start
+To self-host:
+
+```bash
+# Setup
+sudo apt-get install gdal-bin python3-gdal python3-pil python3-requests python3-numpy
+
+# Run
 python3 server.py
 ```
 
-Then open `http://localhost:8080`. The UI provides a map for drawing rectangles visually or pasting coordinates directly. Zoom and output dimensions are auto-computed.
+Then open `http://localhost:8080`.
