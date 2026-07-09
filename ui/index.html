@@ -274,6 +274,7 @@ function scaleCorners(cs, factor) {
 
 let handles = [];
 let rotHandle = null;
+let rotCircle = null;
 let dragStartDist = 0;
 let dragStartAngle = 0;
 let dragStartCenter = null;
@@ -283,6 +284,7 @@ function clearHandles() {
   handles.forEach(h => map.removeLayer(h));
   handles = [];
   if (rotHandle) { map.removeLayer(rotHandle); rotHandle = null; }
+  if (rotCircle) { map.removeLayer(rotCircle); rotCircle = null; }
 }
 
 function createHandles() {
@@ -328,11 +330,16 @@ function createHandles() {
     const dx = topPx.x - centerPx.x, dy = topPx.y - centerPx.y;
     const pxLen = Math.sqrt(dx*dx + dy*dy) || 1;
     const handlePx = L.point(
-      centerPx.x + dx / pxLen * 50,
-      centerPx.y + dy / pxLen * 50
+      centerPx.x + dx / pxLen * 70,
+      centerPx.y + dy / pxLen * 70
     );
     const rotPos = map.containerPointToLatLng(handlePx);
     const orbitRadiusDeg = Math.abs(rotPos.lat - cy) + Math.abs(rotPos.lng - cx);
+    // Draw gizmo circle at center
+    rotCircle = L.circle([cy, cx], {
+      radius: haversineM([cy, cx], [rotPos.lat, rotPos.lng]),
+      color: '#666', weight: 1, dashArray: '4 4', fill: false, interactive: false
+    }).addTo(map);
     rotHandle = L.marker(rotPos, {
       draggable: true,
       icon: L.divIcon({ className: 'handle handle-rot', iconSize: [16, 16] })
