@@ -28,7 +28,7 @@ The 4 coordinate pairs go in order around the rectangle (e.g., SW → NW → NE 
 ## Requirements
 
 ```bash
-sudo apt-get install gdal-bin python3-pil python3-requests python3-numpy
+sudo apt-get install gdal-bin python3-gdal python3-pil python3-requests python3-numpy
 ```
 
 ## Example
@@ -42,12 +42,12 @@ python3 straighten_sat.py \
 
 # UTM zone 31N — coordinates from a drone flight plan or GPS field survey
 python3 straighten_sat.py \
-  --coords "4582345,431200 4582345,431400 4582145,431400 4582145,431200" \
+  --coords "431200,4582345 431400,4582345 431400,4582145 431200,4582145" \
   --output field.tif \
   --crs EPSG:32631
 
 # Web Mercator — coordinates from a tile server or web map export
 python3 straighten_sat.py \
-  --coords "5700000,-15000 5700000,-13000 5698000,-13000 5698000,-15000" \
+  --coords "242676,5070038 243790,5070038 243790,5068554 242676,5068554" \
   --output area.png \
   --crs EPSG:3857

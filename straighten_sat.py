@@ -31,6 +31,7 @@ from io import BytesIO
 
 import requests
 from PIL import Image
+from osgeo import osr
 
 # ── Tile sources ────────────────────────────────────────────────────────────
 
@@ -102,40 +103,29 @@ def tile_to_latlon(tx: int, ty: int, zoom: int) -> tuple[float, float, float, fl
 
 
 def reproject_coords(coords: list[tuple[float, float]], src_crs: str) -> list[tuple[float, float]]:
-    """Reproject coordinates from src_crs to EPSG:4326 via gdaltransform.
+    """Reproject coordinates from src_crs to EPSG:4326 via osgeo.osr.
 
-    coords are (lat, lon) tuples. gdaltransform expects x y (lon lat) on stdin
-    and emits x y on stdout, so we swap internally.
+    coords are (x, y) pairs in the source CRS axis order.
+    Returns (lat, lon) in EPSG:4326.
     """
     if src_crs.upper() in ("EPSG:4326", "WGS84", "WGS 84"):
-        return coords  # no-op
+        return coords  # already (lat, lon)
 
-    # Build input: one "lon lat" pair per line
-    stdin_lines = "\n".join(f"{lon} {lat}" for lat, lon in coords)
-
-    r = subprocess.run(
-        ["gdaltransform", "-s_srs", src_crs, "-t_srs", "EPSG:4326"],
-        input=stdin_lines,
-        capture_output=True,
-        text=True,
-    )
-    if r.returncode != 0:
-        print(f"  ERROR reprojecting from {src_crs}: {r.stderr}", file=sys.stderr)
+    src = osr.SpatialReference()
+    if src.SetFromUserInput(src_crs) != 0:
+        print(f"  ERROR: unknown CRS '{src_crs}'", file=sys.stderr)
         sys.exit(1)
+
+    dst = osr.SpatialReference()
+    dst.ImportFromEPSG(4326)
+    dst.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+
+    transform = osr.CoordinateTransformation(src, dst)
 
     out = []
-    for line in r.stdout.strip().split("\n"):
-        if not line.strip():
-            continue
-        parts = line.strip().split()
-        lon, lat = float(parts[0]), float(parts[1])
+    for x, y in coords:
+        lon, lat, _ = transform.TransformPoint(x, y)
         out.append((lat, lon))
-
-    if len(out) != len(coords):
-        print(f"  ERROR: reprojection returned {len(out)} points, expected {len(coords)}",
-              file=sys.stderr)
-        sys.exit(1)
-
     return out
 
 
@@ -179,7 +169,8 @@ def main():
     )
     parser.add_argument(
         "--coords", required=True,
-        help='4 corners as "lat,lon lat,lon lat,lon lat,lon" going around the rectangle'
+        help='4 corners as "x,y x,y x,y x,y" going around the rectangle. '
+             'For EPSG:4326 (default): lon,lat. For UTM: easting,northing.'
     )
     parser.add_argument("--output", required=True, help="Output file (.tif or .png)")
     parser.add_argument("--zoom", type=int, default=19,
