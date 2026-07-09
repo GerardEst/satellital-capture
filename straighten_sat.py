@@ -312,9 +312,10 @@ def main():
     print(f"\n[1/3] Downloading {len(jobs)} tiles "
           f"(parallel, {min(8, len(jobs))} workers)...", flush=True)
     
-    # Disk-backed mosaic via memmap
+    # Disk-backed mosaic via memmap in a temp dir that auto-cleans
     import numpy as np
-    mosaic_file = os.path.join(tempfile.mkdtemp(), "mosaic.dat")
+    mosaic_dir = tempfile.TemporaryDirectory()
+    mosaic_file = os.path.join(mosaic_dir.name, "mosaic.dat")
     mosaic = np.memmap(mosaic_file, dtype='uint8', mode='w+',
                         shape=(ny * tile_size, nx * tile_size, 3))
     
