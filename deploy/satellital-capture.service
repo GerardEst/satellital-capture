@@ -1,0 +1,14 @@
+[Unit]
+Description=Satellital Capture web UI
+After=network.target
+
+[Service]
+Type=simple
+User=gerard
+WorkingDirectory=/tmp/satellital-capture
+ExecStart=/usr/bin/python3 /tmp/satellital-capture/server.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
