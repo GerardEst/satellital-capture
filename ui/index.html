@@ -300,7 +300,6 @@ function parseCoords(text) {
 }
 
 function drawFromCoords(cs) {
-  drawnItems.clearLayers();
   corners = cs;
   captureBtn.disabled = false;
   captureBtn.textContent = 'Capture';
@@ -308,6 +307,7 @@ function drawFromCoords(cs) {
   statusEl.textContent = 'Rectangle set. Ready to capture.';
 
   if (isWgs84()) {
+    drawnItems.clearLayers();
     const lats = cs.map(c => c[0]), lons = cs.map(c => c[1]);
     const bounds = L.latLngBounds(
       [Math.min(...lats), Math.min(...lons)],
@@ -321,8 +321,6 @@ function drawFromCoords(cs) {
     document.getElementById('zoomInfo').textContent =
       ` — zoom ${z} (${widthM.toFixed(0)}m wide)`;
   } else {
-    // For non-WGS84, centerMapFromServer will draw the rectangle
-    // at the reprojected WGS84 bounds
     centerMapFromServer(cs);
   }
 }
@@ -403,7 +401,14 @@ function invalidate(msg) {
   statusEl.textContent = msg;
 }
 
-coordsInput.addEventListener('input', updateFromInput);
+let updateTimer = null;
+coordsInput.addEventListener('input', () => {
+  clearTimeout(updateTimer);
+  updateTimer = setTimeout(updateFromInput, 300);
+});
+document.getElementById('width').addEventListener('input', () => {
+  if (corners) drawFromCoords(corners);
+});
 crsSelect.addEventListener('change', function() {
   userSetCrs = true;
   crsNote.textContent = 'manually set';
