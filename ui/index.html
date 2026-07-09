@@ -318,31 +318,43 @@ function createHandles() {
     m.on('dragend', () => createHandles());
     handles.push(m);
   });
-  // Rotation handle — positioned outward from top edge
+  // Rotation handle — orbits center at fixed screen distance
   if (corners.length >= 4) {
     const [cy, cx] = rectCenter(corners);
+    const centerPx = map.latLngToContainerPoint([cy, cx]);
+    // Place handle 40px outward from center in screen space
     const topMid = [(corners[0][0] + corners[1][0]) / 2, (corners[0][1] + corners[1][1]) / 2];
-    const dx = topMid[1] - cx, dy = topMid[0] - cy;
-    const len = Math.sqrt(dx*dx + dy*dy) || 1;
-    const handleDist = len * 0.00002;  // ~2× rectangle size in degrees
-    const rotPos = [topMid[0] + dy / len * handleDist * 8, topMid[1] + dx / len * handleDist * 8];
+    const topPx = map.latLngToContainerPoint(topMid);
+    const dx = topPx.x - centerPx.x, dy = topPx.y - centerPx.y;
+    const pxLen = Math.sqrt(dx*dx + dy*dy) || 1;
+    const handlePx = L.point(
+      centerPx.x + dx / pxLen * 50,
+      centerPx.y + dy / pxLen * 50
+    );
+    const rotPos = map.containerPointToLatLng(handlePx);
+    const orbitRadiusDeg = Math.abs(rotPos.lat - cy) + Math.abs(rotPos.lng - cx);
     rotHandle = L.marker(rotPos, {
       draggable: true,
       icon: L.divIcon({ className: 'handle handle-rot', iconSize: [16, 16] })
     }).addTo(map);
     rotHandle.on('dragstart', () => {
       dragStartCenter = rectCenter(corners);
-      // Reference angle: line from center to handle
       const pos = rotHandle.getLatLng();
       dragStartAngle = Math.atan2(pos.lat - dragStartCenter[0], pos.lng - dragStartCenter[1]);
     });
     rotHandle.on('drag', (e) => {
       const pos = e.target.getLatLng();
       const [cy2, cx2] = dragStartCenter;
-      const newAngle = Math.atan2(pos.lat - cy2, pos.lng - cx2);
-      const deg = (newAngle - dragStartAngle) * 180 / Math.PI * 0.5;  // 50% sensitivity
+      const angle = Math.atan2(pos.lat - cy2, pos.lng - cx2);
+      // Snap handle to orbit
+      const snapLat = cy2 + Math.sin(angle) * orbitRadiusDeg;
+      const snapLng = cx2 + Math.cos(angle) * orbitRadiusDeg;
+      rotHandle.setLatLng([snapLat, snapLng]);
+      const deg = (angle - dragStartAngle) * 180 / Math.PI;
       corners = rotateCorners(corners, deg);
       refreshFromCorners();
+      // Keep corner handles in sync
+      corners.forEach((c, j) => handles[j].setLatLng(c));
     });
     rotHandle.on('dragend', () => createHandles());
   }
