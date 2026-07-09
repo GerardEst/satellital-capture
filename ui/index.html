@@ -296,10 +296,14 @@ function refreshFromCorners() {
     ` — zoom ${z} · ${outH}px tall · ${widthM.toFixed(0)}×${heightM.toFixed(0)}m`;
 }
 
-drawnItems.on('click', () => { transformBar.style.display = 'flex'; });
+drawnItems.on('click', (e) => {
+  L.DomEvent.stopPropagation(e);
+  transformBar.style.display = 'flex';
+});
 map.on('click', () => { transformBar.style.display = 'none'; });
 
 transformBar.addEventListener('click', (e) => {
+  L.DomEvent.stopPropagation(e);
   const btn = e.target.closest('.tf-btn');
   if (!btn || !corners) return;
   const key = btn.dataset.rot ? 'rot' : 'scale';
