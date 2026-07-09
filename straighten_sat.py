@@ -101,6 +101,44 @@ def tile_to_latlon(tx: int, ty: int, zoom: int) -> tuple[float, float, float, fl
     return (lon_min, lat_min, lon_max, lat_max)
 
 
+def reproject_coords(coords: list[tuple[float, float]], src_crs: str) -> list[tuple[float, float]]:
+    """Reproject coordinates from src_crs to EPSG:4326 via gdaltransform.
+
+    coords are (lat, lon) tuples. gdaltransform expects x y (lon lat) on stdin
+    and emits x y on stdout, so we swap internally.
+    """
+    if src_crs.upper() in ("EPSG:4326", "WGS84", "WGS 84"):
+        return coords  # no-op
+
+    # Build input: one "lon lat" pair per line
+    stdin_lines = "\n".join(f"{lon} {lat}" for lat, lon in coords)
+
+    r = subprocess.run(
+        ["gdaltransform", "-s_srs", src_crs, "-t_srs", "EPSG:4326"],
+        input=stdin_lines,
+        capture_output=True,
+        text=True,
+    )
+    if r.returncode != 0:
+        print(f"  ERROR reprojecting from {src_crs}: {r.stderr}", file=sys.stderr)
+        sys.exit(1)
+
+    out = []
+    for line in r.stdout.strip().split("\n"):
+        if not line.strip():
+            continue
+        parts = line.strip().split()
+        lon, lat = float(parts[0]), float(parts[1])
+        out.append((lat, lon))
+
+    if len(out) != len(coords):
+        print(f"  ERROR: reprojection returned {len(out)} points, expected {len(coords)}",
+              file=sys.stderr)
+        sys.exit(1)
+
+    return out
+
+
 def haversine_m(p1: tuple, p2: tuple) -> float:
     """Haversine distance in metres between (lat, lon) pairs."""
     lat1, lon1 = math.radians(p1[0]), math.radians(p1[1])
@@ -150,9 +188,15 @@ def main():
                         help="Output width in pixels (auto if not set)")
     parser.add_argument("--source", choices=list(TILE_SOURCES), default="google",
                         help="Tile source (default: google)")
+    parser.add_argument("--crs", default="EPSG:4326",
+                        help="Input coordinate reference system (default: EPSG:4326). "
+                             "Anything gdaltransform accepts: EPSG:32631, EPSG:3857, WGS84, etc.")
     args = parser.parse_args()
 
     coords = parse_coords(args.coords)
+
+    # Reproject to WGS 84 if needed
+    coords = reproject_coords(coords, args.crs)
     source = TILE_SOURCES[args.source]
     max_z = min(args.zoom, source["max_zoom"])
     z = max_z
