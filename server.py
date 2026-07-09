@@ -1,26 +1,15 @@
 #!/usr/bin/env python3
-"""HTTP server for satellital-capture — simple progress dashboard.
+"""Minimal HTTP server for the satellital-capture web UI.
 
-- `GET /` — serves `index.html` (the map UI).
-
-The capture endpoint:
-- `POST /capture` — enqueues a job, returns `{job_id: "abc123"}` immediately.
-- `GET /job/:id` — returns `{status, progress, error}`.
-- `GET /download/:id` — returns the finished file.
-
-Completed files are cached for 1 hour then cleaned up.
+Serves ui/index.html and handles POST /capture to run straighten_sat.py.
 """
 
 import http.server
 import json
 import os
-import shutil
 import subprocess
 import sys
 import tempfile
-import threading
-import time
-import uuid
 import urllib.parse
 
 import straighten_sat
@@ -30,50 +19,21 @@ PORT = 8080
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 UI_DIR = os.path.join(SCRIPT_DIR, "ui")
 
-# Job queue state
-_jobs: dict = {}
-_jobs_lock = threading.Lock()
-
-_FILE_TTL = 3600  # keep completed files for 1 hour
-
-
-def _cleanup_expired():
-    now = time.time()
-    with _jobs_lock:
-        expired = [
-            jid for jid, j in _jobs.items()
-            if j["status"] in ("done", "error")
-            and now - j.get("_finished", 0) > _FILE_TTL
-        ]
-        for jid in expired:
-            path = _jobs[jid].get("_file")
-            if path and os.path.exists(path):
-                os.unlink(path)
-            del _jobs[jid]
-
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
-        pass  # quiet
-
-    # ── GET ────────────────────────────────────────────────────────────
+        # Quiet logging
+        pass
 
     def do_GET(self):
         path = urllib.parse.urlparse(self.path).path
-        if path.startswith("/job/"):
-            self._job_status(path.split("/job/", 1)[1])
-        elif path.startswith("/download/"):
-            self._download(path.split("/download/", 1)[1])
-        elif path in ("/", ""):
-            self._serve_file(os.path.join(UI_DIR, "index.html"))
+        if path == "/" or path == "":
+            path = "/index.html"
+        filepath = os.path.join(UI_DIR, path.lstrip("/"))
+        if os.path.isfile(filepath) and filepath.startswith(UI_DIR):
+            self._serve_file(filepath)
         else:
-            fp = os.path.join(UI_DIR, path.lstrip("/"))
-            if os.path.isfile(fp) and fp.startswith(UI_DIR):
-                self._serve_file(fp)
-            else:
-                self.send_error(404)
-
-    # ── POST ───────────────────────────────────────────────────────────
+            self.send_error(404)
 
     def do_POST(self):
         try:
@@ -84,12 +44,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
             else:
                 self.send_error(404)
         except (BrokenPipeError, ConnectionResetError):
-            pass
+            pass  # client disconnected, nothing to do
         except Exception as e:
             try:
                 self.send_error(500, str(e))
             except Exception:
-                pass
+                pass  # can't even send error, give up
 
     def _handle_bounds(self):
         length = int(self.headers.get("Content-Length", 0))
@@ -132,9 +92,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(json.dumps(result).encode())
 
-    # ── Capture (job queue) ────────────────────────────────────────────
-
     def _handle_capture(self):
+
         length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(length)
         try:
@@ -145,69 +104,54 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         coords = data.get("coords", "")
         width = str(data.get("width", 1200))
-        source = data.get("source", "esri")
+        source = data.get("source", "google")
         filename = data.get("filename", "capture.tif")
-        crs = data.get("crs")
+        crs = data.get("crs")  # None = auto-detect
 
         if not coords:
             self.send_error(400, "Missing coords")
             return
 
-        # Enqueue
-        jid = uuid.uuid4().hex[:12]
-        with _jobs_lock:
-            _jobs[jid] = {"status": "queued", "progress": 0, "filename": filename}
-            _cleanup_expired()
+        with tempfile.TemporaryDirectory() as tmp:
+            outfile = os.path.join(tmp, filename)
+            cmd = [
+                sys.executable,
+                os.path.join(SCRIPT_DIR, "straighten_sat.py"),
+                "--coords", coords,
+                "--width", width,
+                "--source", source,
+                "--output", outfile,
+            ]
+            if crs:
+                cmd.extend(["--crs", crs])
+            try:
+                r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+            except subprocess.TimeoutExpired:
+                self.send_error(504, "Capture timed out — reduce area or width")
+                return
 
-        threading.Thread(
-            target=_run_capture,
-            args=(jid, coords, width, source, filename, crs),
-            daemon=True,
-        ).start()
+            if r.returncode != 0:
+                self.send_response(500)
+                self.send_header("Content-Type", "text/plain")
+                self.end_headers()
+                self.wfile.write(r.stderr.encode() or r.stdout.encode())
+                return
 
-        self.send_response(202)
-        self.send_header("Content-Type", "application/json")
-        self.end_headers()
-        self.wfile.write(json.dumps({"job_id": jid}).encode())
+            if not os.path.exists(outfile):
+                self.send_error(500, "Output file not created")
+                return
 
-    def _job_status(self, jid):
-        with _jobs_lock:
-            j = _jobs.get(jid)
-        if not j:
-            self.send_error(404, "Job not found")
-            return
+            with open(outfile, "rb") as f:
+                data = f.read()
+
         self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.end_headers()
-        self.wfile.write(json.dumps({
-            "status": j["status"],
-            "progress": j.get("progress", 0),
-            "filename": j.get("filename", ""),
-            "error": j.get("error", "") if j["status"] == "error" else "",
-        }).encode())
-
-    def _download(self, jid):
-        with _jobs_lock:
-            j = _jobs.get(jid)
-        if not j or j["status"] != "done":
-            self.send_error(404, "File not available")
-            return
-        path = j.get("_file")
-        if not path or not os.path.exists(path):
-            self.send_error(404, "File expired or missing")
-            return
-        ct = "image/tiff" if j["filename"].endswith(".tif") else "image/png"
-        with open(path, "rb") as f:
-            data = f.read()
-        self.send_response(200)
+        ct = "image/tiff" if outfile.endswith(".tif") else "image/png"
         self.send_header("Content-Type", ct)
         self.send_header("Content-Disposition",
-                         f"attachment; filename=\"{j['filename']}\"")
+                         f'attachment; filename="{filename}"')
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
-
-    # ── Helpers ────────────────────────────────────────────────────────
 
     def _serve_file(self, path):
         ct = "text/html"
@@ -230,57 +174,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             pass
 
-
-# ── Background worker ───────────────────────────────────────────────────
-
-def _run_capture(jid, coords, width, source, filename, crs):
-    with _jobs_lock:
-        _jobs[jid]["status"] = "processing"
-        _jobs[jid]["progress"] = 5
-
-    tmpdir = tempfile.mkdtemp()
-    outfile = os.path.join(tmpdir, filename)
-    try:
-        cmd = [
-            sys.executable, "-u",
-            os.path.join(SCRIPT_DIR, "straighten_sat.py"),
-            "--coords", coords,
-            "--width", width,
-            "--source", source,
-            "--output", outfile,
-        ]
-        if crs:
-            cmd.extend(["--crs", crs])
-
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-
-        if r.returncode != 0:
-            raise RuntimeError(r.stderr or r.stdout or "Capture failed")
-
-        if not os.path.exists(outfile):
-            raise RuntimeError("Output file not created")
-
-        with _jobs_lock:
-            _jobs[jid]["status"] = "done"
-            _jobs[jid]["progress"] = 100
-            _jobs[jid]["_file"] = outfile
-            _jobs[jid]["_finished"] = time.time()
-
-    except subprocess.TimeoutExpired:
-        with _jobs_lock:
-            _jobs[jid]["status"] = "error"
-            _jobs[jid]["error"] = "Capture timed out — reduce area or width"
-            _jobs[jid]["_finished"] = time.time()
-        shutil.rmtree(tmpdir, ignore_errors=True)
-    except Exception as e:
-        with _jobs_lock:
-            _jobs[jid]["status"] = "error"
-            _jobs[jid]["error"] = str(e)
-            _jobs[jid]["_finished"] = time.time()
-        shutil.rmtree(tmpdir, ignore_errors=True)
-
-
-# ── Entrypoint ──────────────────────────────────────────────────────────
 
 def main():
     os.chdir(SCRIPT_DIR)
