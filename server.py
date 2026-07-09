@@ -51,6 +51,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         width = str(data.get("width", 1200))
         source = data.get("source", "google")
         filename = data.get("filename", "capture.tif")
+        crs = data.get("crs")  # None = auto-detect
 
         if not coords:
             self.send_error(400, "Missing coords")
@@ -67,6 +68,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 "--source", source,
                 "--output", outfile,
             ]
+            if crs:
+                cmd.extend(["--crs", crs])
             r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
 
             if r.returncode != 0:

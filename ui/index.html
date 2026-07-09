@@ -22,6 +22,9 @@ button { background: #e94560; color: white; border: none; padding: 10px; border-
 button:hover { background: #c73652; }
 button:disabled { background: #555; cursor: not-allowed; }
 .coord-hint { font-size: 10px; color: #666; margin-top: -10px; }
+.crs-row { display: flex; gap: 8px; align-items: center; }
+.crs-row select { flex: 1; }
+.crs-row span { font-size: 11px; color: #666; white-space: nowrap; }
 #status { font-size: 12px; min-height: 40px; padding: 8px; border-radius: 4px; }
 #status.error { background: #3a1a1a; color: #e94560; }
 #status.success { background: #1a3a1a; color: #4ecca3; }
@@ -37,7 +40,22 @@ button:disabled { background: #555; cursor: not-allowed; }
 
   <label>Coordinates</label>
   <textarea id="coordsInput" placeholder="lat1,lon1 lat2,lon2 lat3,lon3 lat4,lon4&#10;e.g. 41.39,2.17 41.39,2.18 41.38,2.18 41.38,2.17" spellcheck="false"></textarea>
-  <div class="coord-hint">Format: lat,lon lat,lon lat,lon lat,lon — going around the rectangle (SW, NW, NE, SE or any order)</div>
+  <div class="coord-hint">4 pairs going around the rectangle: x,y x,y x,y x,y</div>
+
+  <label>Coordinate system</label>
+  <div class="crs-row">
+    <select id="crs">
+      <option value="">Auto (WGS 84 lat/lon)</option>
+      <option value="EPSG:32631">UTM zone 31N (EPSG:32631)</option>
+      <option value="EPSG:25831">ETRS89 / UTM 31N (EPSG:25831)</option>
+      <option value="EPSG:3857">Web Mercator (EPSG:3857)</option>
+      <option value="EPSG:32630">UTM zone 30N (EPSG:32630)</option>
+      <option value="EPSG:32632">UTM zone 32N (EPSG:32632)</option>
+      <option value="EPSG:32633">UTM zone 33N (EPSG:32633)</option>
+      <option value="EPSG:32634">UTM zone 34N (EPSG:32634)</option>
+    </select>
+    <span id="crsNote"></span>
+  </div>
 
   <label>Zoom level</label>
   <select id="zoom">
@@ -93,8 +111,14 @@ map.addControl(drawControl);
 
 let corners = null;
 const coordsInput = document.getElementById('coordsInput');
+const crsSelect = document.getElementById('crs');
+const crsNote = document.getElementById('crsNote');
 const captureBtn = document.getElementById('captureBtn');
 const statusEl = document.getElementById('status');
+
+function getCrs() { return crsSelect.value || null; }
+
+function isWgs84() { return !crsSelect.value || crsSelect.value === 'EPSG:4326'; }
 
 function parseCoords(text) {
   const parts = text.trim().split(/\s+/);
@@ -103,10 +127,13 @@ function parseCoords(text) {
   for (const p of parts) {
     const pair = p.split(',');
     if (pair.length !== 2) return null;
-    const lat = parseFloat(pair[0]), lon = parseFloat(pair[1]);
-    if (isNaN(lat) || isNaN(lon)) return null;
-    if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
-    result.push([lat, lon]);
+    const a = parseFloat(pair[0]), b = parseFloat(pair[1]);
+    if (isNaN(a) || isNaN(b)) return null;
+    // For WGS84, enforce lat/lon bounds. For other CRS, accept any numeric pair.
+    if (isWgs84()) {
+      if (a < -90 || a > 90 || b < -180 || b > 180) return null;
+    }
+    result.push([a, b]);
   }
   return result;
 }
@@ -119,7 +146,10 @@ function drawFromCoords(cs) {
     [Math.max(...lats), Math.max(...lons)]
   );
   L.rectangle(bounds, { color: '#e94560', weight: 2 }).addTo(drawnItems);
-  map.fitBounds(bounds.pad(0.2));
+  // Only fit to bounds if they look like geographic coords
+  if (isWgs84()) {
+    map.fitBounds(bounds.pad(0.2));
+  }
   corners = cs;
   captureBtn.disabled = false;
   captureBtn.textContent = 'Capture';
@@ -137,11 +167,19 @@ function updateFromInput() {
     corners = null;
     captureBtn.disabled = true;
     captureBtn.textContent = 'Paste coordinates or draw a rectangle';
-    statusEl.textContent = 'Invalid coordinates. Needs 4 pairs: lat,lon lat,lon lat,lon lat,lon';
+    if (isWgs84()) {
+      statusEl.textContent = 'Invalid. Needs 4 WGS84 pairs: lat,lon lat,lon lat,lon lat,lon';
+    } else {
+      statusEl.textContent = 'Invalid. Needs 4 numeric pairs: x,y x,y x,y x,y';
+    }
   }
 }
 
 coordsInput.addEventListener('input', updateFromInput);
+crsSelect.addEventListener('change', function() {
+  crsNote.textContent = crsSelect.value ? 'No lat/lon bounds enforced' : '';
+  updateFromInput();
+});
 
 map.on(L.Draw.Event.CREATED, function(e) {
   drawnItems.clearLayers();
@@ -151,6 +189,9 @@ map.on(L.Draw.Event.CREATED, function(e) {
   corners = [[sw.lat, sw.lng], [ne.lat, sw.lng], [ne.lat, ne.lng], [sw.lat, ne.lng]];
   coordsInput.value = corners.map(c => c[0].toFixed(6) + ',' + c[1].toFixed(6)).join(' ');
   coordsInput.classList.remove('invalid');
+  // Drawing on map always produces WGS84
+  crsSelect.value = '';
+  crsNote.textContent = '';
   captureBtn.disabled = false;
   captureBtn.textContent = 'Capture';
   statusEl.className = 'info';
@@ -165,11 +206,12 @@ captureBtn.addEventListener('click', async () => {
   download.style.display = 'none';
 
   const payload = {
-    coords: corners.map(c => c[0] + ',' + c[1]).join(' '),
+    coords: corners.map(c => c[0].toFixed(6) + ',' + c[1].toFixed(6)).join(' '),
     zoom: parseInt(document.getElementById('zoom').value),
     width: parseInt(document.getElementById('width').value),
     source: document.getElementById('source').value,
     filename: document.getElementById('filename').value || 'capture.tif',
+    crs: getCrs(),
   };
 
   try {
