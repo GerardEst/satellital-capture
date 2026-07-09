@@ -57,7 +57,7 @@ button:disabled { background: #555; cursor: not-allowed; }
   <h1>Satellital Capture</h1>
   <p>Paste coordinates or draw a rectangle on the map.</p>
 
-  <label>Coordinates</label>
+  <label>Coordinates <button id="drawBtn" type="button" style="width:auto;padding:4px 12px;font-size:11px;background:#333;border:1px solid #555;border-radius:4px;margin-left:auto">Draw the area</button></label>
   <textarea id="coordsInput" placeholder="lat1,lon1 lat2,lon2 lat3,lon3 lat4,lon4&#10;e.g. 41.39,2.17 41.39,2.18 41.38,2.18 41.38,2.17" spellcheck="false"></textarea>
   <div class="coord-hint">4 pairs going around the rectangle: x,y x,y x,y x,y</div>
 
@@ -159,17 +159,17 @@ L.tileLayer('https://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
 const drawnItems = new L.FeatureGroup();
 map.addLayer(drawnItems);
 
-const drawControl = new L.Control.Draw({
+const drawOptions = {
   draw: {
     polygon: false, polyline: false, circle: false,
     circlemarker: false, marker: false,
     rectangle: { shapeOptions: { color: '#e94560', weight: 2 } }
   }
-});
-map.addControl(drawControl);
+};
 
 let corners = null;
 let userSetCrs = false;
+const drawBtn = document.getElementById('drawBtn');
 const coordsInput = document.getElementById('coordsInput');
 const crsSelect = document.getElementById('crs');
 const crsNote = document.getElementById('crsNote');
@@ -440,7 +440,30 @@ map.on(L.Draw.Event.CREATED, function(e) {
   captureBtn.disabled = false;
   captureBtn.textContent = 'Capture';
   statusEl.className = 'info';
-  statusEl.textContent = 'Rectangle set. Ready to capture.';
+  statusEl.textContent = 'Area drawn — ready to capture.';
+});
+
+drawBtn.addEventListener('click', () => {
+  drawnItems.clearLayers();
+  corners = null;
+  coordsInput.value = '';
+  coordsInput.classList.remove('invalid');
+  captureBtn.disabled = true;
+  captureBtn.textContent = 'Capture';
+  document.getElementById('zoomInfo').textContent = '';
+  statusEl.className = 'info';
+  statusEl.textContent = 'Click and drag on the map to draw a rectangle.';
+  drawBtn.disabled = true;
+  drawBtn.textContent = 'Drawing...';
+  new L.Draw.Rectangle(map, drawOptions.draw.rectangle).enable();
+});
+
+map.on(L.Draw.Event.DRAWSTOP, () => {
+  drawBtn.disabled = false;
+  drawBtn.textContent = 'Draw the area';
+  if (!corners) {
+    statusEl.textContent = 'Ready — paste coordinates or draw on the map.';
+  }
 });
 
 captureBtn.addEventListener('click', async () => {
