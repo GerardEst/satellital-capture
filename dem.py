@@ -88,6 +88,8 @@ def main():
     out_h = max(int(out_w * (height_m / width_m)), 1)
     z = optimal_zoom(width_m, out_w, avg_lat)
     z = min(z, DEM_MAX_ZOOM)
+    # Always use max available zoom for best detail — width controls output px only
+    z = DEM_MAX_ZOOM
 
     print(f"  Rectangle: ~{width_m:.1f}m × ~{height_m:.1f}m")
     print(f"  Output:    {out_w}×{out_h} px, zoom {z}, source AWS Terrain")
