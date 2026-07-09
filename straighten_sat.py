@@ -343,10 +343,10 @@ def main():
 
     # ── Output corners in image space ────────────────────────────────────
     dst_corners = [
-        (0,           out_h - 1),
-        (out_w - 1,   out_h - 1),
-        (out_w - 1,   0),
-        (0,           0),
+        (0,           out_h - 1),  # bottom-left  → coords[0] (SW)
+        (0,           0),          # top-left     → coords[1] (NW)
+        (out_w - 1,   0),          # top-right    → coords[2] (NE)
+        (out_w - 1,   out_h - 1),  # bottom-right → coords[3] (SE)
     ]
 
     src_pixels = []
