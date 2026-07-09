@@ -351,7 +351,7 @@ function createHandles() {
       const snapLat = cy2 + Math.sin(angle) * orbitRadiusDeg;
       const snapLng = cx2 + Math.cos(angle) * orbitRadiusDeg;
       rotHandle.setLatLng([snapLat, snapLng]);
-      const deg = (angle - dragStartAngle) * 180 / Math.PI;
+      const deg = -(angle - dragStartAngle) * 180 / Math.PI;
       corners = rotateCorners(dragStartCorners, deg);
       refreshFromCorners();
       // Keep corner handles in sync
