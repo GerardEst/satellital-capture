@@ -36,12 +36,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_error(404)
 
     def do_POST(self):
-        if self.path == "/bounds":
-            self._handle_bounds()
-        elif self.path == "/capture":
-            self._handle_capture()
-        else:
-            self.send_error(404)
+        try:
+            if self.path == "/bounds":
+                self._handle_bounds()
+            elif self.path == "/capture":
+                self._handle_capture()
+            else:
+                self.send_error(404)
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # client disconnected, nothing to do
+        except Exception as e:
+            try:
+                self.send_error(500, str(e))
+            except Exception:
+                pass  # can't even send error, give up
 
     def _handle_bounds(self):
         length = int(self.headers.get("Content-Length", 0))
@@ -161,7 +169,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Type", ct)
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
-        self.wfile.write(data)
+        try:
+            self.wfile.write(data)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
 
 def main():
