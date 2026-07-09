@@ -334,8 +334,8 @@ function createHandles() {
       centerPx.y + dy / pxLen * 70
     );
     const rotPos = map.containerPointToLatLng(handlePx);
-    const orbitRadiusDeg = Math.abs(rotPos.lat - cy) + Math.abs(rotPos.lng - cx);
-    // Draw gizmo circle at center
+    // Compute orbit radius in screen pixels (true circle)
+    const orbitRadiusPx = 70;
     rotCircle = L.circle([cy, cx], {
       radius: haversineM([cy, cx], [rotPos.lat, rotPos.lng]),
       color: '#4ecca3', weight: 2, opacity: 0.7, fillOpacity: 0.08, interactive: false
@@ -354,14 +354,17 @@ function createHandles() {
       const pos = e.target.getLatLng();
       const [cy2, cx2] = dragStartCenter;
       const angle = Math.atan2(pos.lat - cy2, pos.lng - cx2);
-      // Snap handle to orbit
-      const snapLat = cy2 + Math.sin(angle) * orbitRadiusDeg;
-      const snapLng = cx2 + Math.cos(angle) * orbitRadiusDeg;
-      rotHandle.setLatLng([snapLat, snapLng]);
+      // Snap handle to true screen circle (convert center to px, add orbit, convert back)
+      const cp = map.latLngToContainerPoint([cy2, cx2]);
+      const sp = L.point(
+        cp.x + Math.cos(angle) * orbitRadiusPx,
+        cp.y + Math.sin(angle) * orbitRadiusPx
+      );
+      const snap = map.containerPointToLatLng(sp);
+      rotHandle.setLatLng(snap);
       const deg = -(angle - dragStartAngle) * 180 / Math.PI;
       corners = rotateCorners(dragStartCorners, deg);
       refreshFromCorners();
-      // Keep corner handles in sync
       corners.forEach((c, j) => handles[j].setLatLng(c));
     });
     rotHandle.on('dragend', () => createHandles());
