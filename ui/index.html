@@ -277,6 +277,7 @@ let rotHandle = null;
 let dragStartDist = 0;
 let dragStartAngle = 0;
 let dragStartCenter = null;
+let dragStartCorners = null;
 
 function clearHandles() {
   handles.forEach(h => map.removeLayer(h));
@@ -296,12 +297,13 @@ function createHandles() {
     m.on('dragstart', () => {
       dragStartCenter = rectCenter(corners);
       dragStartDist = haversineM(dragStartCenter, c);
+      dragStartCorners = [...corners.map(p => [...p])];
     });
     m.on('drag', (e) => {
       const pos = e.target.getLatLng();
       const newDist = haversineM(dragStartCenter, [pos.lat, pos.lng]);
       if (dragStartDist > 0.0001) {
-        corners = scaleCorners(corners, newDist / dragStartDist);
+        corners = scaleCorners(dragStartCorners, newDist / dragStartDist);
         refreshFromCorners();
       }
     });
