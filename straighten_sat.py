@@ -224,8 +224,8 @@ def main():
                         help="Tile zoom level (auto-computed from area and width)")
     parser.add_argument("--width", type=int, default=None,
                         help="Output width in pixels (default 1200 if zoom is auto)")
-    parser.add_argument("--source", choices=list(TILE_SOURCES), default="google",
-                        help="Tile source (default: google)")
+    parser.add_argument("--source", choices=list(TILE_SOURCES), default="esri",
+                        help="Tile source (default: esri)")
     parser.add_argument("--crs", default=None,
                         help="Input CRS (auto-detected if omitted). "
                              "Examples: EPSG:32631 (UTM 31N), EPSG:3857, EPSG:25831")
