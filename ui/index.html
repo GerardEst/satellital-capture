@@ -440,7 +440,7 @@ function refreshFromCorners() {
   const heightM = haversineM(corners[1], corners[2]);
   const z = computeZoomClient(widthM, outW, (corners[0][0] + corners[2][0]) / 2);
   const outH = Math.round(outW * (heightM / widthM));
-  document.getElementById('zoomInfo').textContent =
+  document.getElementById('zoomInfo').textContent = isDem() ? '' :
     ` — zoom ${z} · ${outH}px tall · ${widthM.toFixed(0)}×${heightM.toFixed(0)}m`;
 }
 
@@ -461,8 +461,9 @@ function getCrs() {
     const z = parseInt(utmZone.value) || 31;
     return `EPSG:258${String(z).padStart(2,'0')}`;
   }
-  return null;
+  return '';
 }
+function isDem() { return document.getElementById('source').value === 'dem'; }
 
 function isWgs84() {
   const sel = crsSelect.value;
@@ -645,6 +646,8 @@ document.getElementById('source').addEventListener('change', function() {
     map.removeLayer(currentTileLayer);
     currentTileLayer = layer.addTo(map);
   }
+  // Hide zoom info for DEM (fixed zoom 15)
+  document.getElementById('zoomInfo').style.display = this.value === 'dem' ? 'none' : '';
 });
 crsSelect.addEventListener('change', function() {
   userSetCrs = true;
