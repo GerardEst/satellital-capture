@@ -311,9 +311,7 @@ function createHandles() {
           opp[1] + (corner[1] - opp[1]) * scale,
         ]);
         // Move all handles to new positions
-        corners.forEach((c, j) => {
-          if (j !== i) handles[j].setLatLng(c);
-        });
+        corners.forEach((c, j) => handles[j].setLatLng(c));
         refreshFromCorners();
       }
     });
