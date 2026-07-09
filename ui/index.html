@@ -150,11 +150,21 @@ function zoneName(zone, hemi) {
   return name ? `— ${name} ${hemi}` : `Zone ${zone}${hemi}`;
 }
 
+const TILE_LAYERS = {
+  google: L.tileLayer('https://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
+    maxZoom: 22, subdomains: ['mt0','mt1','mt2','mt3'],
+    attribution: 'Google Satellite'
+  }),
+  esri: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    maxZoom: 19, attribution: 'ESRI World Imagery'
+  }),
+  osm: L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19, attribution: '© OpenStreetMap contributors'
+  }),
+};
+
 const map = L.map('map').setView([41.39, 2.18], 14);
-L.tileLayer('https://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
-  maxZoom: 22, subdomains: ['mt0','mt1','mt2','mt3'],
-  attribution: 'Google Satellite'
-}).addTo(map);
+let currentTileLayer = TILE_LAYERS.esri.addTo(map);
 
 const drawnItems = new L.FeatureGroup();
 map.addLayer(drawnItems);
@@ -415,6 +425,13 @@ coordsInput.addEventListener('input', () => {
 });
 document.getElementById('width').addEventListener('input', () => {
   if (corners) drawFromCoords(corners);
+});
+document.getElementById('source').addEventListener('change', function() {
+  const layer = TILE_LAYERS[this.value];
+  if (layer) {
+    map.removeLayer(currentTileLayer);
+    currentTileLayer = layer.addTo(map);
+  }
 });
 crsSelect.addEventListener('change', function() {
   userSetCrs = true;
