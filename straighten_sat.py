@@ -157,27 +157,6 @@ def main():
     max_z = min(args.zoom, source["max_zoom"])
     z = max_z
 
-    # ── Compute output dimensions ───────────────────────────────────────
-    width_m = max(haversine_m(coords[0], coords[3]),
-                  haversine_m(coords[1], coords[2]))
-    height_m = max(haversine_m(coords[0], coords[1]),
-                   haversine_m(coords[2], coords[3]))
-    mpp = 156543.0 / (2 ** z)  # metres per pixel at equator (rough)
-
-    if args.width:
-        out_w = args.width
-        out_h = int(out_w * (height_m / width_m))
-    else:
-        out_w = int(width_m / mpp)
-        out_h = int(height_m / mpp)
-
-    out_w = max(out_w, 1)
-    out_h = max(out_h, 1)
-
-    print(f"  Rectangle: ~{width_m:.1f}m × ~{height_m:.1f}m")
-    print(f"  Output:    {out_w}×{out_h} px, zoom {z}, source {source['name']}")
-    print(f"  Pixel res: ~{width_m/out_w:.2f} m/px")
-
     # ── Tile range ──────────────────────────────────────────────────────
     lats = [c[0] for c in coords]
     lons = [c[1] for c in coords]
@@ -233,40 +212,42 @@ def main():
     src_w, src_h = mosaic.size
     print(f"  Geo bounds: {lon_min:.6f},{lat_min:.6f} → {lon_max:.6f},{lat_max:.6f}")
 
-    # ── Auto-detect which corner is which (NW, NE, SE, SW) ────────────
-    # Sort coords by latitude to find northern vs southern corners
-    by_lat = sorted(enumerate(coords), key=lambda x: x[1][0], reverse=True)
-    north = [by_lat[0], by_lat[1]]   # top 2 by latitude
-    south = [by_lat[2], by_lat[3]]   # bottom 2 by latitude
+    # ── Use vertex order directly: coords[0]→[1]→[2]→[3] goes around ──
+    # Edge coords[0]→coords[1] becomes the bottom edge of the output
+    # Edge coords[1]→coords[2] becomes the right edge
+    width_m = haversine_m(coords[0], coords[1])
+    height_m = haversine_m(coords[1], coords[2])
+    mpp = 156543.0 / (2 ** z)  # metres per pixel at equator (rough)
 
-    # Among northern corners, westernmost = NW, easternmost = NE
-    nw_idx, nw = min(north, key=lambda x: x[1][1])
-    ne_idx, ne = max(north, key=lambda x: x[1][1])
+    if args.width:
+        out_w = args.width
+        out_h = int(out_w * (height_m / width_m))
+    else:
+        out_w = int(width_m / mpp)
+        out_h = int(height_m / mpp)
 
-    # Among southern corners, westernmost = SW, easternmost = SE
-    sw_idx, sw = min(south, key=lambda x: x[1][1])
-    se_idx, se = max(south, key=lambda x: x[1][1])
+    out_w = max(out_w, 1)
+    out_h = max(out_h, 1)
 
-    # Reorder coords to: NW, NE, SE, SW (matching output corners)
-    ordered_coords = [nw, ne, se, sw]
+    print(f"  Rectangle: ~{width_m:.1f}m × ~{height_m:.1f}m")
+    print(f"  Output:    {out_w}×{out_h} px, zoom {z}, source {source['name']}")
+    print(f"  Pixel res: ~{width_m/out_w:.2f} m/px")
 
-    # ── Compute source pixel coords for each rectangle corner ──────────
-    # Source image: [lon_min, lat_min] (bottom-left) to [lon_max, lat_max] (top-right)
-    # Pixel mapping: px = (lon - lon_min)/(lon_max - lon_min) * src_w
-    #                py = (lat_max - lat)/(lat_max - lat_min) * src_h
+    # Output corners in image space (0,0 is top-left)
+    # coords go around: [0]=SW-like → [1]=SE-like → [2]=NE-like → [3]=NW-like
+    dst_corners = [
+        (0,           out_h - 1),    # coords[0] → bottom-left
+        (out_w - 1,   out_h - 1),    # coords[1] → bottom-right
+        (out_w - 1,   0),            # coords[2] → top-right
+        (0,           0),            # coords[3] → top-left
+    ]
+
+    # Source pixel coords for each corner (in the mosaic's pixel space)
     src_pixels = []
-    for lat, lon in ordered_coords:
+    for lat, lon in coords:
         px = (lon - lon_min) / (lon_max - lon_min) * src_w
         py = (lat_max - lat) / (lat_max - lat_min) * src_h
         src_pixels.append((px, py))
-
-    # Output corners in image space (0,0 is top-left)
-    dst_corners = [
-        (0,           0),            # NW
-        (out_w - 1,   0),            # NE
-        (out_w - 1,   out_h - 1),    # SE
-        (0,           out_h - 1),    # SW
-    ]
 
     # Compute perspective coefficients using least squares
     # We solve for the 3x3 homography matrix that maps src → dst
