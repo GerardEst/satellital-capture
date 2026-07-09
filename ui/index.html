@@ -301,14 +301,19 @@ function createHandles() {
     });
     m.on('drag', (e) => {
       const pos = e.target.getLatLng();
-      const opp = corners[(i + 2) % 4];
+      const oppIdx = (i + 2) % 4;
+      const opp = corners[oppIdx];
       const newDist = haversineM(opp, [pos.lat, pos.lng]);
       if (dragStartDist > 0.0001) {
         const scale = newDist / dragStartDist;
-        corners = dragStartCorners.map(corner => [
+        corners = dragStartCorners.map((corner, j) => [
           opp[0] + (corner[0] - opp[0]) * scale,
           opp[1] + (corner[1] - opp[1]) * scale,
         ]);
+        // Move all handles to new positions
+        corners.forEach((c, j) => {
+          if (j !== i) handles[j].setLatLng(c);
+        });
         refreshFromCorners();
       }
     });
