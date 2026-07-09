@@ -118,6 +118,29 @@ const statusEl = document.getElementById('status');
 
 function getCrs() { return crsSelect.value || null; }
 
+let userSetCrs = false; // true if user manually changed the CRS
+
+function detectCRSFromValues(pairs) {
+  // pairs: [[a0,b0], [a1,b1], [a2,b2], [a3,b3]]
+  const aVals = pairs.map(p => p[0]), bVals = pairs.map(p => p[1]);
+  const maxAbs = Math.max(...aVals.map(Math.abs), ...bVals.map(Math.abs));
+
+  // WGS84: lat in [-90,90], lon in [-180,180]
+  if (aVals.every(v => v >= -90 && v <= 90) && bVals.every(v => v >= -180 && v <= 180)) {
+    return '';
+  }
+  // UTM: easting in [100k, 900k], northing in [0, 10M]
+  if (aVals.every(v => v >= 100000 && v <= 900000) && bVals.every(v => v >= 0 && v <= 10000000)) {
+    return 'utm';
+  }
+  // Web Mercator: values in Mercator world bounds, at least one > 180
+  if (maxAbs > 180 && aVals.every(v => v >= -20037509 && v <= 20037509) &&
+      bVals.every(v => v >= -20037509 && v <= 20037509)) {
+    return 'EPSG:3857';
+  }
+  return null; // can't detect
+}
+
 function isWgs84() { return !crsSelect.value || crsSelect.value === 'EPSG:4326'; }
 
 function parseCoords(text) {
@@ -158,26 +181,63 @@ function drawFromCoords(cs) {
 }
 
 function updateFromInput() {
-  const cs = parseCoords(coordsInput.value);
+  const text = coordsInput.value.trim();
+  if (!text) return;
+
+  // Raw parse: just check 4 numeric pairs (no CRS bounds)
+  const parts = text.split(/\s+/);
+  if (parts.length !== 4) { invalidate('Needs exactly 4 pairs'); return; }
+  const raw = [];
+  for (const p of parts) {
+    const pair = p.split(',');
+    if (pair.length !== 2) { invalidate('Each pair needs 2 numbers: x,y'); return; }
+    const a = parseFloat(pair[0]), b = parseFloat(pair[1]);
+    if (isNaN(a) || isNaN(b)) { invalidate('All values must be numbers'); return; }
+    raw.push([a, b]);
+  }
+
+  // Auto-detect CRS (unless user explicitly set it)
+  if (!userSetCrs) {
+    const detected = detectCRSFromValues(raw);
+    if (detected === 'utm') {
+      crsSelect.value = 'EPSG:32631';
+      crsNote.textContent = 'UTM detected — check zone above';
+    } else if (detected === 'EPSG:3857') {
+      crsSelect.value = 'EPSG:3857';
+      crsNote.textContent = 'Web Mercator detected';
+    } else if (detected === '') {
+      crsSelect.value = '';
+      crsNote.textContent = '';
+    } else {
+      invalidate('Cannot detect coordinate system — select manually above');
+      return;
+    }
+  }
+
+  // Now validate with CRS bounds
+  const cs = parseCoords(text);
   if (cs) {
     coordsInput.classList.remove('invalid');
     drawFromCoords(cs);
-  } else if (coordsInput.value.trim()) {
-    coordsInput.classList.add('invalid');
-    corners = null;
-    captureBtn.disabled = true;
-    captureBtn.textContent = 'Paste coordinates or draw a rectangle';
-    if (isWgs84()) {
-      statusEl.textContent = 'Invalid. Needs 4 WGS84 pairs: lat,lon lat,lon lat,lon lat,lon';
-    } else {
-      statusEl.textContent = 'Invalid. Needs 4 numeric pairs: x,y x,y x,y x,y';
-    }
+  } else {
+    invalidate(isWgs84()
+      ? 'Invalid WGS84 coords (lat -90..90, lon -180..180)'
+      : 'Invalid coordinates for selected CRS');
   }
+}
+
+function invalidate(msg) {
+  coordsInput.classList.add('invalid');
+  corners = null;
+  captureBtn.disabled = true;
+  captureBtn.textContent = 'Paste coordinates or draw a rectangle';
+  statusEl.textContent = msg;
 }
 
 coordsInput.addEventListener('input', updateFromInput);
 crsSelect.addEventListener('change', function() {
-  crsNote.textContent = crsSelect.value ? 'No lat/lon bounds enforced' : '';
+  userSetCrs = true;
+  crsNote.textContent = crsSelect.value ? 'Manually set' : '';
   updateFromInput();
 });
 
@@ -192,6 +252,7 @@ map.on(L.Draw.Event.CREATED, function(e) {
   // Drawing on map always produces WGS84
   crsSelect.value = '';
   crsNote.textContent = '';
+  userSetCrs = false;
   captureBtn.disabled = false;
   captureBtn.textContent = 'Capture';
   statusEl.className = 'info';
