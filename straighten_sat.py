@@ -29,6 +29,7 @@ import sys
 import tempfile
 from io import BytesIO
 
+import numpy as np
 import requests
 from PIL import Image
 from osgeo import osr
@@ -154,7 +155,8 @@ def haversine_m(p1: tuple, p2: tuple) -> float:
     lat1, lon1 = math.radians(p1[0]), math.radians(p1[1])
     lat2, lon2 = math.radians(p2[0]), math.radians(p2[1])
     dlat, dlon = lat2 - lat1, lon2 - lon1
-    a = math.sin(dlat/2)**2 + math.cos(lat1)*math.cos(lat2)*math.sin(dlon/2)**2
+    a = min(1.0, max(0.0,
+        math.sin(dlat/2)**2 + math.cos(lat1)*math.cos(lat2)*math.sin(dlon/2)**2))
     return 6371000 * 2 * math.asin(math.sqrt(a))
 
 

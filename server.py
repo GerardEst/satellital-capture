@@ -12,6 +12,8 @@ import sys
 import tempfile
 import urllib.parse
 
+import straighten_sat
+
 HOST = "0.0.0.0"
 PORT = 8080
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -57,7 +59,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_error(400, "Missing coords")
             return
 
-        import straighten_sat
         parsed = straighten_sat.parse_coords(coords)
         if crs:
             parsed = straighten_sat.reproject_coords(parsed, crs)
@@ -94,7 +95,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
 
         coords = data.get("coords", "")
-        zoom = data.get("zoom")  # None = auto-compute; only pass if explicitly set
         width = str(data.get("width", 1200))
         source = data.get("source", "google")
         filename = data.get("filename", "capture.tif")
@@ -114,8 +114,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 "--source", source,
                 "--output", outfile,
             ]
-            if zoom is not None:
-                cmd.extend(["--zoom", str(zoom)])
             if crs:
                 cmd.extend(["--crs", crs])
             r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)

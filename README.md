@@ -20,7 +20,7 @@ The 4 coordinate pairs go in order around the rectangle (e.g., SW → NW → NE 
 |------|---------|-------------|
 | `--coords` | *(required)* | 4 pairs: `"lat,lon lat,lon lat,lon lat,lon"` |
 | `--output` | *(required)* | `.tif` for GeoTIFF or `.png` |
-| `--zoom` | `19` | Tile detail (higher = sharper, max 22 for Google) |
+| `--zoom` | auto | Tile detail (auto-computed from area and width; max 22 for Google) |
 | `--width` | auto | Output width in px (height auto-calculated) |
 | `--source` | `google` | `google`, `esri`, `bing`, or `osm` |
 | `--crs` | auto | Input CRS. Auto-detects EPSG:4326 (lat/lon). For UTM or Web Mercator, pass explicitly: `EPSG:32631`, `EPSG:3857`, etc. |
@@ -51,3 +51,18 @@ python3 straighten_sat.py \
   --coords "242676,5070038 243790,5070038 243790,5068554 242676,5068554" \
   --output area.png \
   --crs EPSG:3857
+
+## Web UI
+
+A browser-based interface is included:
+
+```bash
+# One-time setup (systemd)
+sudo cp deploy/satellital-capture.service /etc/systemd/system/
+sudo systemctl enable --now satellital-capture
+
+# Manual start
+python3 server.py
+```
+
+Then open `http://localhost:8080`. The UI provides a map for drawing rectangles visually or pasting coordinates directly. Zoom and output dimensions are auto-computed.
