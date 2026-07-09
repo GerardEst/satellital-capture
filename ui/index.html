@@ -344,7 +344,7 @@ async function centerMapFromServer(cs) {
     if (!resp.ok) return;
     const b = await resp.json();
     document.getElementById('zoomInfo').textContent =
-      ` — zoom ${b.zoom} · ${b.out_h}px tall · ${b.width_m.toFixed(0)}×${b.height_m.toFixed(0)}m`;
+      ` — zoom ${b.zoom} · ${b.height_px}px tall · ${b.width_m.toFixed(0)}×${b.height_m.toFixed(0)}m`;
     drawnItems.clearLayers();
     if (b.corners) {
       L.polygon(b.corners, { color: '#e94560', weight: 2, fill: false }).addTo(drawnItems);
