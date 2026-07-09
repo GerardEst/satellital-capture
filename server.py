@@ -52,6 +52,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         coords = data.get("coords", "")
         crs = data.get("crs")
+        out_w = data.get("width", 1200)
         if not coords:
             self.send_error(400, "Missing coords")
             return
@@ -63,9 +64,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         lats = [p[0] for p in parsed]
         lons = [p[1] for p in parsed]
+        width_m = straighten_sat.haversine_m(parsed[0], parsed[1])
+        avg_lat = sum(lats) / len(lats)
+        zoom = straighten_sat.optimal_zoom(width_m, out_w, avg_lat)
         result = {
             "south": min(lats), "north": max(lats),
             "west": min(lons), "east": max(lons),
+            "zoom": zoom,
+            "width_m": round(width_m, 1),
         }
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
