@@ -700,8 +700,8 @@ map.on(L.Draw.Event.DRAWSTOP, () => {
 captureBtn.addEventListener('click', async () => {
   if (!corners) return;
   const btn = captureBtn, status = statusEl, download = document.getElementById('download');
-  btn.disabled = true; btn.textContent = 'Capturing...';
-  status.className = 'info'; status.textContent = 'Downloading tiles and warping...';
+  btn.disabled = true; btn.textContent = 'Submitting...';
+  status.className = 'info'; status.textContent = 'Enqueuing capture...';
   download.style.display = 'none';
 
   const payload = {
@@ -713,20 +713,51 @@ captureBtn.addEventListener('click', async () => {
   };
 
   try {
-    const resp = await fetch('/capture', {
+    // Submit job
+    const submit = await fetch('/capture', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    if (!resp.ok) { const err = await resp.text(); throw new Error(err || `Server error: ${resp.status}`); }
-    const blob = await resp.blob();
-    const url = URL.createObjectURL(blob);
-    download.href = url; download.download = payload.filename;
-    download.click();
-    status.className = 'success'; status.textContent = 'Capture complete!';
+    if (!submit.ok) throw new Error((await submit.text()) || `Server error: ${submit.status}`);
+    const { job_id } = await submit.json();
+
+    // Poll for completion
+    let lastProgress = 0;
+    const poll = setInterval(async () => {
+      try {
+        const r = await fetch('/job/' + job_id);
+        if (!r.ok) { clearInterval(poll); throw new Error('Job lost'); }
+        const j = await r.json();
+
+        if (j.progress > lastProgress) lastProgress = j.progress;
+
+        if (j.status === 'done') {
+          clearInterval(poll);
+          status.textContent = 'Downloading result...';
+          const blob = await fetch('/download/' + job_id).then(r => r.blob());
+          const url = URL.createObjectURL(blob);
+          download.href = url; download.download = payload.filename;
+          download.click();
+          status.className = 'success'; status.textContent = 'Capture complete!';
+          btn.disabled = false; btn.textContent = 'Capture';
+        } else if (j.status === 'error') {
+          clearInterval(poll);
+          throw new Error(j.error || 'Capture failed');
+        } else {
+          const phases = ['Downloading tiles', 'Warping', 'Writing output'];
+          const phaseIdx = j.progress < 35 ? 0 : j.progress < 70 ? 1 : 2;
+          status.textContent = `${phases[phaseIdx]}... ${j.progress}%`;
+          btn.textContent = `Capturing ${j.progress}%`;
+        }
+      } catch (e) {
+        clearInterval(poll);
+        status.className = 'error'; status.textContent = e.message;
+        btn.disabled = false; btn.textContent = 'Capture';
+      }
+    }, 1500);
   } catch (e) {
     status.className = 'error'; status.textContent = e.message;
-  } finally {
     btn.disabled = false; btn.textContent = 'Capture';
   }
 });
