@@ -650,6 +650,7 @@ document.getElementById('source').addEventListener('change', function() {
   }
   // Don't hide zoom info entirely (height/meters still shown)
   document.getElementById('zoomInfo').style.display = '';
+  if (corners) drawFromCoords(corners);
 });
 crsSelect.addEventListener('change', function() {
   userSetCrs = true;
