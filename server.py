@@ -65,14 +65,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
         lats = [p[0] for p in parsed]
         lons = [p[1] for p in parsed]
         width_m = straighten_sat.haversine_m(parsed[0], parsed[1])
+        height_m = straighten_sat.haversine_m(parsed[1], parsed[2])
         avg_lat = sum(lats) / len(lats)
         zoom = straighten_sat.optimal_zoom(width_m, out_w, avg_lat)
+        out_h = int(out_w * (height_m / width_m)) if width_m > 0 else 0
         result = {
             "south": min(lats), "north": max(lats),
             "west": min(lons), "east": max(lons),
             "corners": [[p[0], p[1]] for p in parsed],
             "zoom": zoom,
             "width_m": round(width_m, 1),
+            "height_m": round(height_m, 1),
+            "height_px": max(out_h, 1),
         }
         self.send_response(200)
         self.send_header("Content-Type", "application/json")

@@ -86,8 +86,12 @@ button:disabled { background: #555; cursor: not-allowed; }
     </div>
   </div>
 
-  <label>Output width (px) <span id="zoomInfo" style="font-weight:normal;color:#888;font-size:11px;text-transform:none"></span></label>
-  <input id="width" type="number" value="1200" min="100" max="8000">
+  <label>Output dimensions <span id="zoomInfo" style="font-weight:normal;color:#888;font-size:11px;text-transform:none"></span></label>
+  <div style="display:flex;gap:8px;">
+    <input id="width" type="number" value="1200" min="100" max="8000" style="flex:1;">
+    <span style="color:#666;align-self:center;font-size:13px;">×</span>
+    <input id="heightOut" type="text" readonly style="flex:1;color:#888;cursor:default;" tabindex="-1">
+  </div>
 
   <label>Tile source</label>
   <select id="source">
@@ -299,6 +303,13 @@ function parseCoords(text) {
   return result;
 }
 
+function updateDimensions(outW, widthM, heightM, zoom) {
+  const outH = widthM > 0 ? Math.round(outW * (heightM / widthM)) : 0;
+  document.getElementById('heightOut').value = outH > 0 ? outH : '—';
+  document.getElementById('zoomInfo').textContent =
+    ` — zoom ${zoom} (${widthM.toFixed(0)}m × ${heightM.toFixed(0)}m)`;
+}
+
 function drawFromCoords(cs) {
   corners = cs;
   captureBtn.disabled = false;
@@ -317,9 +328,9 @@ function drawFromCoords(cs) {
     map.fitBounds(bounds.pad(0.2));
     const outW = parseInt(document.getElementById('width').value) || 1200;
     const widthM = haversineM(cs[0], cs[1]);
+    const heightM = haversineM(cs[1], cs[2]);
     const z = computeZoomClient(widthM, outW, (cs[0][0] + cs[2][0]) / 2);
-    document.getElementById('zoomInfo').textContent =
-      ` — zoom ${z} (${widthM.toFixed(0)}m wide)`;
+    updateDimensions(outW, widthM, heightM, z);
   } else {
     centerMapFromServer(cs);
   }
@@ -340,8 +351,10 @@ async function centerMapFromServer(cs) {
     });
     if (!resp.ok) return;
     const b = await resp.json();
-    document.getElementById('zoomInfo').textContent =
-      ` — zoom ${b.zoom} (${b.width_m.toFixed(0)}m wide)`;
+    updateDimensions(
+      parseInt(document.getElementById('width').value) || 1200,
+      b.width_m, b.height_m, b.zoom
+    );
     const bounds = L.latLngBounds([b.south, b.west], [b.north, b.east]);
     drawnItems.clearLayers();
     L.rectangle(bounds, { color: '#e94560', weight: 2 }).addTo(drawnItems);
@@ -430,10 +443,7 @@ map.on(L.Draw.Event.CREATED, function(e) {
   crsNote.textContent = '';
   zonePicker.style.display = 'none';
   userSetCrs = false;
-  captureBtn.disabled = false;
-  captureBtn.textContent = 'Capture';
-  statusEl.className = 'info';
-  statusEl.textContent = 'Rectangle set. Ready to capture.';
+  drawFromCoords(corners);
 });
 
 captureBtn.addEventListener('click', async () => {
