@@ -114,14 +114,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         with tempfile.TemporaryDirectory() as tmp:
             outfile = os.path.join(tmp, filename)
+            script = "dem.py" if source == "dem" else "straighten_sat.py"
             cmd = [
                 sys.executable,
-                os.path.join(SCRIPT_DIR, "straighten_sat.py"),
+                os.path.join(SCRIPT_DIR, script),
                 "--coords", coords,
                 "--width", width,
-                "--source", source,
                 "--output", outfile,
             ]
+            if source != "dem":
+                cmd.extend(["--source", source])
             if crs:
                 cmd.extend(["--crs", crs])
             try:
