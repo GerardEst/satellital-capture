@@ -70,6 +70,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         result = {
             "south": min(lats), "north": max(lats),
             "west": min(lons), "east": max(lons),
+            "corners": [[p[0], p[1]] for p in parsed],
             "zoom": zoom,
             "width_m": round(width_m, 1),
         }
