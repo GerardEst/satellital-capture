@@ -296,14 +296,19 @@ function createHandles() {
     }).addTo(map);
     m.on('dragstart', () => {
       dragStartCenter = rectCenter(corners);
-      dragStartDist = haversineM(dragStartCenter, c);
+      dragStartDist = haversineM(corners[(i + 2) % 4], c);
       dragStartCorners = [...corners.map(p => [...p])];
     });
     m.on('drag', (e) => {
       const pos = e.target.getLatLng();
-      const newDist = haversineM(dragStartCenter, [pos.lat, pos.lng]);
+      const opp = corners[(i + 2) % 4];
+      const newDist = haversineM(opp, [pos.lat, pos.lng]);
       if (dragStartDist > 0.0001) {
-        corners = scaleCorners(dragStartCorners, newDist / dragStartDist);
+        const scale = newDist / dragStartDist;
+        corners = dragStartCorners.map(corner => [
+          opp[0] + (corner[0] - opp[0]) * scale,
+          opp[1] + (corner[1] - opp[1]) * scale,
+        ]);
         refreshFromCorners();
       }
     });
