@@ -294,12 +294,6 @@ function parseCoords(text) {
 
 function drawFromCoords(cs) {
   drawnItems.clearLayers();
-  const lats = cs.map(c => c[0]), lons = cs.map(c => c[1]);
-  const bounds = L.latLngBounds(
-    [Math.min(...lats), Math.min(...lons)],
-    [Math.max(...lats), Math.max(...lons)]
-  );
-  L.rectangle(bounds, { color: '#e94560', weight: 2 }).addTo(drawnItems);
   corners = cs;
   captureBtn.disabled = false;
   captureBtn.textContent = 'Capture';
@@ -307,8 +301,16 @@ function drawFromCoords(cs) {
   statusEl.textContent = 'Rectangle set. Ready to capture.';
 
   if (isWgs84()) {
+    const lats = cs.map(c => c[0]), lons = cs.map(c => c[1]);
+    const bounds = L.latLngBounds(
+      [Math.min(...lats), Math.min(...lons)],
+      [Math.max(...lats), Math.max(...lons)]
+    );
+    L.rectangle(bounds, { color: '#e94560', weight: 2 }).addTo(drawnItems);
     map.fitBounds(bounds.pad(0.2));
   } else {
+    // For non-WGS84, centerMapFromServer will draw the rectangle
+    // at the reprojected WGS84 bounds
     centerMapFromServer(cs);
   }
 }
@@ -327,7 +329,10 @@ async function centerMapFromServer(cs) {
     });
     if (!resp.ok) return;
     const b = await resp.json();
-    map.fitBounds(L.latLngBounds([b.south, b.west], [b.north, b.east]).pad(0.2));
+    const bounds = L.latLngBounds([b.south, b.west], [b.north, b.east]);
+    drawnItems.clearLayers();
+    L.rectangle(bounds, { color: '#e94560', weight: 2 }).addTo(drawnItems);
+    map.fitBounds(bounds.pad(0.2));
   } catch (e) { /* non-critical */ }
 }
 
