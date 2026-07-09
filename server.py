@@ -12,7 +12,7 @@ import sys
 import tempfile
 import urllib.parse
 
-HOST = "127.0.0.1"
+HOST = "0.0.0.0"
 PORT = 8080
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 UI_DIR = os.path.join(SCRIPT_DIR, "ui")
