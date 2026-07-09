@@ -146,7 +146,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             # For DEM, send the colourised PNG
             download_file = outfile
             if source == "dem":
-                png = outfile.rsplit(".", 1)[0] + "_color.png"
+                png = outfile.rsplit(".", 1)[0] + ".png"
                 if os.path.exists(png):
                     download_file = png
 
