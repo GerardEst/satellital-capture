@@ -279,6 +279,8 @@ let dragStartDist = 0;
 let dragStartAngle = 0;
 let dragStartCenter = null;
 let dragStartCorners = null;
+let isDraggingPoly = false;
+let dragStartMouse = null;
 
 function clearHandles() {
   handles.forEach(h => map.removeLayer(h));
@@ -373,6 +375,53 @@ function createHandles() {
     rotHandle.on('dragend', () => createHandles());
   }
 }
+
+// ── Polygon dragging ──────────────────────────────────────────────────
+drawnItems.on('mousedown', (e) => {
+  if (!corners) return;
+  L.DomEvent.stopPropagation(e);
+  isDraggingPoly = true;
+  dragStartMouse = e.containerPoint;
+  dragStartCorners = [...corners.map(p => [...p])];
+  map.dragging.disable();
+});
+
+map.on('mousemove', (e) => {
+  if (!isDraggingPoly || !dragStartMouse) return;
+  const dx = e.containerPoint.x - dragStartMouse.x;
+  const dy = e.containerPoint.y - dragStartMouse.y;
+  if (Math.abs(dx) < 3 && Math.abs(dy) < 3) return;
+  const delta = map.containerPointToLatLng(
+    map.latLngToContainerPoint(dragStartCorners[0]).add([dx, dy])
+  );
+  const c0 = dragStartCorners[0];
+  const dLat = delta.lat - c0[0], dLng = delta.lng - c0[1];
+  corners = dragStartCorners.map(c => [c[0] + dLat, c[1] + dLng]);
+  refreshFromCorners();
+  // Keep handles in sync
+  corners.forEach((c, j) => handles[j]?.setLatLng(c));
+  if (rotHandle) {
+    const [cy, cx] = rectCenter(corners);
+    const cp = map.latLngToContainerPoint([cy, cx]);
+    const topMid = [(corners[0][0] + corners[1][0]) / 2, (corners[0][1] + corners[1][1]) / 2];
+    const topPx = map.latLngToContainerPoint(topMid);
+    const rx = topPx.x - cp.x, ry = topPx.y - cp.y;
+    const pLen = Math.sqrt(rx*rx + ry*ry) || 1;
+    const hp = L.point(cp.x + rx / pLen * 70, cp.y + ry / pLen * 70);
+    rotHandle.setLatLng(map.containerPointToLatLng(hp));
+  }
+});
+
+map.on('mouseup', () => {
+  if (!isDraggingPoly) return;
+  isDraggingPoly = false;
+  dragStartMouse = null;
+  map.dragging.enable();
+  if (corners) {
+    coordsInput.value = corners.map(c => c[0].toFixed(6) + ',' + c[1].toFixed(6)).join(' ');
+    createHandles();
+  }
+});
 
 function refreshFromCorners() {
   drawnItems.clearLayers();
