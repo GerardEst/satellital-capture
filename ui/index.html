@@ -469,8 +469,7 @@ captureBtn.addEventListener('click', async () => {
     const blob = await resp.blob();
     const url = URL.createObjectURL(blob);
     download.href = url; download.download = payload.filename;
-    download.style.display = 'block';
-    download.textContent = `Download ${payload.filename} (${(blob.size/1024/1024).toFixed(1)} MB)`;
+    download.click();
     status.className = 'success'; status.textContent = 'Capture complete!';
   } catch (e) {
     status.className = 'error'; status.textContent = e.message;
