@@ -366,7 +366,7 @@ function createHandles() {
       );
       rotHandle.setLatLng(map.containerPointToLatLng(sp));
       const deg = (angle - dragStartAngle) * 180 / Math.PI;
-      corners = rotateCorners(dragStartCorners, -deg);
+      corners = rotateCorners(dragStartCorners, deg);
       refreshFromCorners();
       corners.forEach((c, j) => handles[j].setLatLng(c));
     });
