@@ -238,7 +238,30 @@ def main():
 
     nx = x1 - x0 + 1
     ny = y1 - y0 + 1
-    print(f"  Tiles:     {nx}×{ny} ({nx*ny} total) from ({x0},{y0}) to ({x1},{y1})")
+    total_tiles = nx * ny
+    print(f"  Tiles:     {nx}×{ny} ({total_tiles} total) from ({x0},{y0}) to ({x1},{y1})")
+
+    MAX_TILES = 1000
+    if total_tiles > MAX_TILES:
+        # Auto-reduce zoom until tile count is manageable
+        for try_z in range(z - 1, 0, -1):
+            tx0, ty0 = latlon_to_tile(max(lats), min(lons), try_z)
+            tx1, ty1 = latlon_to_tile(min(lats), max(lons), try_z)
+            if tx0 > tx1: tx0, tx1 = tx1, tx0
+            if ty0 > ty1: ty0, ty1 = ty1, ty0
+            t = (tx1 - tx0 + 1) * (ty1 - ty0 + 1)
+            if t <= MAX_TILES:
+                print(f"  Too many tiles ({total_tiles}) — auto-reducing zoom "
+                      f"from {z} to {try_z} ({t} tiles)")
+                z = try_z
+                x0, y0, x1, y1 = tx0, ty0, tx1, ty1
+                nx, ny = tx1 - tx0 + 1, ty1 - ty0 + 1
+                total_tiles = t
+                break
+        else:
+            print(f"  ERROR: {total_tiles} tiles exceeds limit of {MAX_TILES}. "
+                  f"Reduce the area or increase zoom.", file=sys.stderr)
+            sys.exit(1)
 
     # ── Download & stitch tiles ─────────────────────────────────────────
     tile_size = 256
