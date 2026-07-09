@@ -10,7 +10,6 @@ GET  /           → serves ui/index.html
 import http.server
 import json
 import os
-import re
 import subprocess
 import sys
 import tempfile
@@ -230,6 +229,7 @@ def _process_job(job_id, coords, width, source, filename, crs):
     """Run the capture in a background thread."""
     with _jobs_lock:
         _jobs[job_id]["status"] = "processing"
+        _jobs[job_id]["progress"] = 5
 
     tmpdir = None
     outfile = None
@@ -237,7 +237,7 @@ def _process_job(job_id, coords, width, source, filename, crs):
         tmpdir = tempfile.mkdtemp()
         outfile = os.path.join(tmpdir, filename)
         cmd = [
-            sys.executable,
+            sys.executable, "-u",
             os.path.join(SCRIPT_DIR, "straighten_sat.py"),
             "--coords", coords,
             "--width", width,
@@ -247,32 +247,11 @@ def _process_job(job_id, coords, width, source, filename, crs):
         if crs:
             cmd.extend(["--crs", crs])
 
-        proc = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
-        )
+        # Run with unbuffered output for progress, 300s timeout
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
 
-        # Parse progress from stdout lines
-        for line in proc.stdout:
-            line = line.strip()
-            # Track phases
-            if "Downloading" in line:
-                m = re.search(r"(\d+)%", line)
-                if m:
-                    pct = int(m.group(1))
-                    with _jobs_lock:
-                        _jobs[job_id]["progress"] = pct // 3  # download is ~30% of total
-            elif "warping" in line.lower() or "straighten" in line.lower():
-                with _jobs_lock:
-                    _jobs[job_id]["progress"] = 60
-            elif "Writing" in line:
-                with _jobs_lock:
-                    _jobs[job_id]["progress"] = 85
-
-        proc.wait()
-
-        if proc.returncode != 0:
-            stderr = proc.stderr.read()
-            raise RuntimeError(stderr or "Capture failed")
+        if r.returncode != 0:
+            raise RuntimeError(r.stderr or r.stdout or "Capture failed")
 
         if not os.path.exists(outfile):
             raise RuntimeError("Output file not created")
@@ -283,12 +262,21 @@ def _process_job(job_id, coords, width, source, filename, crs):
             _jobs[job_id]["_file"] = outfile
             _jobs[job_id]["_finished"] = time.time()
 
+    except subprocess.TimeoutExpired:
+        with _jobs_lock:
+            _jobs[job_id]["status"] = "error"
+            _jobs[job_id]["error"] = "Capture timed out — reduce area or width"
+            _jobs[job_id]["_finished"] = time.time()
+        if outfile and os.path.exists(outfile):
+            os.unlink(outfile)
+        if tmpdir:
+            import shutil
+            shutil.rmtree(tmpdir, ignore_errors=True)
     except Exception as e:
         with _jobs_lock:
             _jobs[job_id]["status"] = "error"
             _jobs[job_id]["error"] = str(e)
             _jobs[job_id]["_finished"] = time.time()
-        # Clean up on error
         if outfile and os.path.exists(outfile):
             os.unlink(outfile)
         if tmpdir:
