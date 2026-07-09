@@ -143,14 +143,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.send_error(500, "Output file not created")
                 return
 
-            with open(outfile, "rb") as f:
+            # For DEM, send the colourised PNG
+            download_file = outfile
+            if source == "dem":
+                png = outfile.rsplit(".", 1)[0] + "_color.png"
+                if os.path.exists(png):
+                    download_file = png
+
+            with open(download_file, "rb") as f:
                 data = f.read()
 
         self.send_response(200)
-        ct = "image/tiff" if outfile.endswith(".tif") else "image/png"
+        ct = "image/png" if download_file.endswith(".png") else "image/tiff"
+        disp_name = os.path.basename(download_file)
         self.send_header("Content-Type", ct)
         self.send_header("Content-Disposition",
-                         f'attachment; filename="{filename}"')
+                         f'attachment; filename="{disp_name}"')
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)

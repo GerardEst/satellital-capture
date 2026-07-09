@@ -188,6 +188,21 @@ def main():
     size_mb = os.path.getsize(args.output) / (1024 * 1024)
     print(f"\n✓  {args.output}  ({size_mb:.1f} MB, {out_w}×{out_h} px, Float32)")
 
+    # ── Colourised PNG preview ─────────────────────────────────────
+    png_out = args.output.rsplit(".", 1)[0] + "_color.png"
+    ramp = os.path.join(tempfile.gettempdir(), "dem_ramp.txt")
+    with open(ramp, "w") as f:
+        f.write("0 27 70 44\n700 55 124 72\n1400 131 167 83\n2100 208 179 102\n")
+        f.write("2800 236 189 121\n3500 250 214 165\n4200 245 245 235\n")
+    subprocess.run([
+        "gdaldem", "color-relief", "-q",
+        "-alpha", "-nearest_color_entry",
+        args.output, ramp, png_out,
+    ], check=True)
+    os.unlink(ramp)
+    png_mb = os.path.getsize(png_out) / (1024 * 1024)
+    print(f"✓  {png_out}  ({png_mb:.1f} MB, colourised)")
+
 
 if __name__ == "__main__":
     main()
