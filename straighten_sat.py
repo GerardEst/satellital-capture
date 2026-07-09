@@ -27,6 +27,7 @@ import os
 import subprocess
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from io import BytesIO
 
 import numpy as np
@@ -174,6 +175,16 @@ def quadkey(tx: int, ty: int, zoom: int) -> str:
     return key
 
 
+def _download_tile(url: str, headers: dict) -> Image.Image | None:
+    """Download a single tile, return PIL Image or None on failure."""
+    try:
+        resp = requests.get(url, headers=headers, timeout=15)
+        resp.raise_for_status()
+        return Image.open(BytesIO(resp.content)).convert("RGB")
+    except Exception:
+        return None
+
+
 def optimal_zoom(width_m: float, out_w: int, avg_lat: float) -> int:
     """Compute zoom level with oversampling for better quality.
 
@@ -288,30 +299,37 @@ def main():
     # ── Download & stitch tiles ─────────────────────────────────────────
     tile_size = 256
     mosaic = Image.new("RGB", (nx * tile_size, ny * tile_size))
-    session = requests.Session()
 
-    print(f"\n[1/3] Downloading {total_tiles} tiles...", end="", flush=True)
+    # Build list of (url, x, y) for all tiles
+    jobs = []
     for j, ty in enumerate(range(y0, y1 + 1)):
         for i, tx in enumerate(range(x0, x1 + 1)):
             if source.get("quadkey"):
                 url = source["url"].format(quad=quadkey(tx, ty, z), z=z, x=tx, y=ty)
             else:
                 url = source["url"].format(z=z, x=tx, y=ty)
+            jobs.append((url, i, j))
 
-            try:
-                hdrs = source.get("headers", HEADERS)
-                resp = session.get(url, headers=hdrs, timeout=15)
-                resp.raise_for_status()
-                tile = Image.open(BytesIO(resp.content)).convert("RGB")
+    hdrs = source.get("headers", HEADERS)
+    print(f"\n[1/3] Downloading {len(jobs)} tiles "
+          f"(parallel, {min(8, len(jobs))} workers)...", flush=True)
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futures = {pool.submit(_download_tile, url, hdrs): (i, j)
+                   for url, i, j in jobs}
+        done = 0
+        for f in as_completed(futures):
+            i, j = futures[f]
+            tile = f.result()
+            if tile is not None:
                 mosaic.paste(tile, (i * tile_size, j * tile_size))
-            except Exception as e:
-                print(f"\n  WARNING: tile ({tx},{ty}) failed: {e}")
+            else:
+                print(f"\n  WARNING: tile at ({i},{j}) failed")
+            done += 1
+            pct = int(done / len(jobs) * 100)
+            print(f"\r[1/3] Downloading... {pct}%", end="", flush=True)
 
-        pct = int((j + 1) / ny * 100)
-        print(f"\r[1/3] Downloading tiles... {pct}%", end="", flush=True)
     print(" done.")
-
-    session.close()
 
     if sum(mosaic.getextrema()[0]) == 0:
         print("  ERROR: all tiles are black — download likely failed.", file=sys.stderr)
