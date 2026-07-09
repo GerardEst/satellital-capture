@@ -34,9 +34,45 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_error(404)
 
     def do_POST(self):
-        if self.path != "/capture":
+        if self.path == "/bounds":
+            self._handle_bounds()
+        elif self.path == "/capture":
+            self._handle_capture()
+        else:
             self.send_error(404)
+
+    def _handle_bounds(self):
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length)
+        try:
+            data = json.loads(body)
+        except json.JSONDecodeError:
+            self.send_error(400, "Invalid JSON")
             return
+
+        coords = data.get("coords", "")
+        crs = data.get("crs")
+        if not coords:
+            self.send_error(400, "Missing coords")
+            return
+
+        import straighten_sat
+        parsed = straighten_sat.parse_coords(coords)
+        if crs:
+            parsed = straighten_sat.reproject_coords(parsed, crs)
+
+        lats = [p[0] for p in parsed]
+        lons = [p[1] for p in parsed]
+        result = {
+            "south": min(lats), "north": max(lats),
+            "west": min(lons), "east": max(lons),
+        }
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(json.dumps(result).encode())
+
+    def _handle_capture(self):
 
         length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(length)

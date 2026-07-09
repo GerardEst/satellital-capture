@@ -169,15 +169,38 @@ function drawFromCoords(cs) {
     [Math.max(...lats), Math.max(...lons)]
   );
   L.rectangle(bounds, { color: '#e94560', weight: 2 }).addTo(drawnItems);
-  // Only fit to bounds if they look like geographic coords
-  if (isWgs84()) {
-    map.fitBounds(bounds.pad(0.2));
-  }
   corners = cs;
   captureBtn.disabled = false;
   captureBtn.textContent = 'Capture';
   statusEl.className = 'info';
   statusEl.textContent = 'Rectangle set. Ready to capture.';
+
+  // Center map: WGS84 directly, non-WGS84 via /bounds endpoint
+  if (isWgs84()) {
+    map.fitBounds(bounds.pad(0.2));
+  } else {
+    centerMapFromServer(cs);
+  }
+}
+
+async function centerMapFromServer(cs) {
+  const crs = getCrs();
+  if (!crs) return;
+  try {
+    const resp = await fetch('/bounds', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        coords: cs.map(c => c[0].toFixed(6) + ',' + c[1].toFixed(6)).join(' '),
+        crs: crs,
+      }),
+    });
+    if (!resp.ok) return;
+    const b = await resp.json();
+    map.fitBounds(L.latLngBounds(
+      [b.south, b.west], [b.north, b.east]
+    ).pad(0.2));
+  } catch (e) { /* non-critical */ }
 }
 
 function updateFromInput() {
