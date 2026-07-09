@@ -9,13 +9,13 @@ Give it 4 coordinates in order around the rectangle, and it:
   4. Writes a GeoTIFF or PNG
 
 Usage:
-  python3 straighten_sat.py \\
-    --coords "lat1,lon1 lat2,lon2 lat3,lon3 lat4,lon4" \\
+  python3 straighten_sat.py \
+    --coords "lat1,lon1 lat2,lon2 lat3,lon3 lat4,lon4" \
     --output result.tif
 
-  python3 straighten_sat.py \\
-    --coords "lat1,lon1 lat2,lon2 lat3,lon3 lat4,lon4" \\
-    --output result.png --zoom 20 --width 800
+  python3 straighten_sat.py \
+    --coords "lat1,lon1 lat2,lon2 lat3,lon3 lat4,lon4" \
+    --output result.png --width 800
 
 The 4 coordinate pairs should go in order around the rectangle
 (e.g., SW, NW, NE, SE — any start corner is fine as long as they go around).
@@ -131,12 +131,7 @@ def reproject_coords(coords: list[tuple[float, float]], src_crs: str) -> list[tu
 
 
 def detect_crs(coords: list[tuple[float, float]]) -> str:
-    """Auto-detect CRS from coordinate value ranges.
-
-    Currently only detects EPSG:4326 (lat/lon). Other CRS like UTM and
-    Web Mercator overlap in value ranges for mid-latitude areas and
-    cannot be reliably distinguished — use --crs explicitly.
-    """
+    """Auto-detect CRS from coordinate value ranges."""
     x_vals = [c[0] for c in coords]
     y_vals = [c[1] for c in coords]
 
@@ -177,6 +172,16 @@ def quadkey(tx: int, ty: int, zoom: int) -> str:
     return key
 
 
+def optimal_zoom(width_m: float, out_w: int, avg_lat: float) -> int:
+    """Compute the zoom level where tile resolution ≈ output resolution."""
+    target_mpp = width_m / out_w
+    equator_mpp = 156543.0 * math.cos(math.radians(avg_lat))
+    if target_mpp <= 0:
+        return 22
+    z = int(math.log2(equator_mpp / target_mpp))
+    return max(1, min(z, 22))
+
+
 def run_cmd(cmd: list[str], desc: str):
     """Print and run a command, exit on failure."""
     print(f"  [{desc}] {' '.join(cmd)}")
@@ -198,10 +203,10 @@ def main():
              'For EPSG:4326 (default): lon,lat. For UTM: easting,northing.'
     )
     parser.add_argument("--output", required=True, help="Output file (.tif or .png)")
-    parser.add_argument("--zoom", type=int, default=19,
-                        help="Tile zoom level (default 19)")
+    parser.add_argument("--zoom", type=int, default=None,
+                        help="Tile zoom level (auto-computed from area and width)")
     parser.add_argument("--width", type=int, default=None,
-                        help="Output width in pixels (auto if not set)")
+                        help="Output width in pixels (default 1200 if zoom is auto)")
     parser.add_argument("--source", choices=list(TILE_SOURCES), default="google",
                         help="Tile source (default: google)")
     parser.add_argument("--crs", default=None,
@@ -221,8 +226,34 @@ def main():
     # Reproject to WGS 84 if needed
     coords = reproject_coords(coords, crs)
     source = TILE_SOURCES[args.source]
-    max_z = min(args.zoom, source["max_zoom"])
-    z = max_z
+
+    # ── Compute output dimensions and zoom ────────────────────────────────
+    width_m = haversine_m(coords[0], coords[1])
+    height_m = haversine_m(coords[1], coords[2])
+    avg_lat = sum(c[0] for c in coords) / len(coords)
+
+    if args.zoom is not None:
+        z = min(args.zoom, source["max_zoom"])
+        mpp = 156543.0 * math.cos(math.radians(avg_lat)) / (2 ** z)
+        if args.width:
+            out_w = args.width
+            out_h = int(out_w * (height_m / width_m))
+        else:
+            out_w = int(width_m / mpp)
+            out_h = int(height_m / mpp)
+    else:
+        # Auto zoom: match tile resolution to output resolution
+        out_w = args.width if args.width else 1200
+        out_h = int(out_w * (height_m / width_m))
+        z = optimal_zoom(width_m, out_w, avg_lat)
+        z = min(z, source["max_zoom"])
+
+    out_w = max(out_w, 1)
+    out_h = max(out_h, 1)
+
+    print(f"  Rectangle: ~{width_m:.1f}m × ~{height_m:.1f}m")
+    print(f"  Output:    {out_w}×{out_h} px, zoom {z}, source {source['name']}")
+    print(f"  Pixel res: ~{width_m/out_w:.2f} m/px")
 
     # ── Tile range ──────────────────────────────────────────────────────
     lats = [c[0] for c in coords]
@@ -230,7 +261,6 @@ def main():
     x0, y0 = latlon_to_tile(max(lats), min(lons), z)
     x1, y1 = latlon_to_tile(min(lats), max(lons), z)
 
-    # x0/y0 = top-left tile, x1/y1 = bottom-right tile (Web Mercator)
     if x0 > x1:
         x0, x1 = x1, x0
     if y0 > y1:
@@ -243,32 +273,16 @@ def main():
 
     MAX_TILES = 1000
     if total_tiles > MAX_TILES:
-        # Auto-reduce zoom until tile count is manageable
-        for try_z in range(z - 1, 0, -1):
-            tx0, ty0 = latlon_to_tile(max(lats), min(lons), try_z)
-            tx1, ty1 = latlon_to_tile(min(lats), max(lons), try_z)
-            if tx0 > tx1: tx0, tx1 = tx1, tx0
-            if ty0 > ty1: ty0, ty1 = ty1, ty0
-            t = (tx1 - tx0 + 1) * (ty1 - ty0 + 1)
-            if t <= MAX_TILES:
-                print(f"  Too many tiles ({total_tiles}) — auto-reducing zoom "
-                      f"from {z} to {try_z} ({t} tiles)")
-                z = try_z
-                x0, y0, x1, y1 = tx0, ty0, tx1, ty1
-                nx, ny = tx1 - tx0 + 1, ty1 - ty0 + 1
-                total_tiles = t
-                break
-        else:
-            print(f"  ERROR: {total_tiles} tiles exceeds limit of {MAX_TILES}. "
-                  f"Reduce the area or increase zoom.", file=sys.stderr)
-            sys.exit(1)
+        print(f"  ERROR: {total_tiles} tiles exceeds limit of {MAX_TILES}. "
+              f"Reduce the area or specify --width manually.", file=sys.stderr)
+        sys.exit(1)
 
     # ── Download & stitch tiles ─────────────────────────────────────────
     tile_size = 256
     mosaic = Image.new("RGB", (nx * tile_size, ny * tile_size))
     session = requests.Session()
 
-    print(f"\n[1/3] Downloading {nx*ny} tiles...", end="", flush=True)
+    print(f"\n[1/3] Downloading {total_tiles} tiles...", end="", flush=True)
     for j, ty in enumerate(range(y0, y1 + 1)):
         for i, tx in enumerate(range(x0, x1 + 1)):
             if source.get("quadkey"):
@@ -277,7 +291,6 @@ def main():
                 url = source["url"].format(z=z, x=tx, y=ty)
 
             try:
-                # Use source-specific headers if available, else default
                 hdrs = source.get("headers", HEADERS)
                 resp = session.get(url, headers=hdrs, timeout=15)
                 resp.raise_for_status()
@@ -297,61 +310,29 @@ def main():
         sys.exit(1)
 
     # ── Compute mosaic geo-bounds ───────────────────────────────────────
-    lon_min, lat_min, _, _ = tile_to_latlon(x0, y1, z)   # bottom-left
-    _, _, lon_max, lat_max = tile_to_latlon(x1, y0, z)   # top-right
+    lon_min, lat_min, _, _ = tile_to_latlon(x0, y1, z)
+    _, _, lon_max, lat_max = tile_to_latlon(x1, y0, z)
     src_w, src_h = mosaic.size
     print(f"  Geo bounds: {lon_min:.6f},{lat_min:.6f} → {lon_max:.6f},{lat_max:.6f}")
 
-    # ── Use vertex order directly: coords[0]→[1]→[2]→[3] goes around ──
-    # Edge coords[0]→coords[1] becomes the bottom edge of the output
-    # Edge coords[1]→coords[2] becomes the right edge
-    width_m = haversine_m(coords[0], coords[1])
-    height_m = haversine_m(coords[1], coords[2])
-    mpp = 156543.0 / (2 ** z)  # metres per pixel at equator (rough)
-
-    if args.width:
-        out_w = args.width
-        out_h = int(out_w * (height_m / width_m))
-    else:
-        out_w = int(width_m / mpp)
-        out_h = int(height_m / mpp)
-
-    out_w = max(out_w, 1)
-    out_h = max(out_h, 1)
-
-    print(f"  Rectangle: ~{width_m:.1f}m × ~{height_m:.1f}m")
-    print(f"  Output:    {out_w}×{out_h} px, zoom {z}, source {source['name']}")
-    print(f"  Pixel res: ~{width_m/out_w:.2f} m/px")
-
-    # Output corners in image space (0,0 is top-left)
-    # coords go around: [0]=SW-like → [1]=SE-like → [2]=NE-like → [3]=NW-like
+    # ── Output corners in image space ────────────────────────────────────
     dst_corners = [
-        (0,           out_h - 1),    # coords[0] → bottom-left
-        (out_w - 1,   out_h - 1),    # coords[1] → bottom-right
-        (out_w - 1,   0),            # coords[2] → top-right
-        (0,           0),            # coords[3] → top-left
+        (0,           out_h - 1),
+        (out_w - 1,   out_h - 1),
+        (out_w - 1,   0),
+        (0,           0),
     ]
 
-    # Source pixel coords for each corner (in the mosaic's pixel space)
     src_pixels = []
     for lat, lon in coords:
         px = (lon - lon_min) / (lon_max - lon_min) * src_w
         py = (lat_max - lat) / (lat_max - lat_min) * src_h
         src_pixels.append((px, py))
 
-    # Compute perspective coefficients using least squares
-    # We solve for the 3x3 homography matrix that maps src → dst
-    # PIL.Image.PERSPECTIVE expects: [a, b, c, d, e, f, g, h] where:
-    #   x' = (a*x + b*y + c) / (g*x + h*y + 1)
-    #   y' = (d*x + e*y + f) / (g*x + h*y + 1)
-
     import numpy as np
 
     print(f"\n[2/3] Perspective-warping to straighten...")
 
-    # Build the linear system for each dst→src pair
-    # PIL.PERSPECTIVE maps output coords → source coords, so we solve
-    # for coefficients that map dst → src (not src → dst)
     A_rows = []
     b_rows = []
     for (sx, sy), (dx, dy) in zip(src_pixels, dst_corners):
@@ -362,7 +343,7 @@ def main():
     A = np.array(A_rows, dtype=np.float64)
     b = np.array(b_rows, dtype=np.float64)
     coeffs = np.linalg.lstsq(A, b, rcond=None)[0]
-    coeffs = coeffs.tolist()  # [a, b, c, d, e, f, g, h]
+    coeffs = coeffs.tolist()
 
     warped = mosaic.transform(
         (out_w, out_h),
@@ -377,11 +358,6 @@ def main():
         raw_tif = os.path.join(tmp, "raw.tif")
         warped.save(raw_tif)
 
-        # Compute output geo-bounds: the 4 corners of the output image
-        # correspond to the original rectangle corners in geographic space.
-        # Output top-left = coords[1] (NW), bottom-right = coords[3] (SE)
-        # ... but after warping, the corners ARE the rectangle corners.
-        # We just need the lat/lon range of the rectangle for georeferencing.
         out_lats = [c[0] for c in coords]
         out_lons = [c[1] for c in coords]
         out_lon_min = min(out_lons)
