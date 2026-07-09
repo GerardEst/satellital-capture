@@ -55,6 +55,9 @@ TILE_SOURCES = {
         "name": "OpenStreetMap",
         "url": "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
         "max_zoom": 19,
+        "headers": {
+            "User-Agent": "satellital-capture/1.0 (github.com/GerardEst/satellital-capture)",
+        },
     },
 }
 
@@ -205,7 +208,9 @@ def main():
                 url = source["url"].format(z=z, x=tx, y=ty)
 
             try:
-                resp = session.get(url, headers=HEADERS, timeout=15)
+                # Use source-specific headers if available, else default
+                hdrs = source.get("headers", HEADERS)
+                resp = session.get(url, headers=hdrs, timeout=15)
                 resp.raise_for_status()
                 tile = Image.open(BytesIO(resp.content)).convert("RGB")
                 mosaic.paste(tile, (i * tile_size, j * tile_size))
@@ -225,74 +230,112 @@ def main():
     # ── Compute mosaic geo-bounds ───────────────────────────────────────
     lon_min, lat_min, _, _ = tile_to_latlon(x0, y1, z)   # bottom-left
     _, _, lon_max, lat_max = tile_to_latlon(x1, y0, z)   # top-right
+    src_w, src_h = mosaic.size
     print(f"  Geo bounds: {lon_min:.6f},{lat_min:.6f} → {lon_max:.6f},{lat_max:.6f}")
 
+    # ── Auto-detect which corner is which (NW, NE, SE, SW) ────────────
+    # Sort coords by latitude to find northern vs southern corners
+    by_lat = sorted(enumerate(coords), key=lambda x: x[1][0], reverse=True)
+    north = [by_lat[0], by_lat[1]]   # top 2 by latitude
+    south = [by_lat[2], by_lat[3]]   # bottom 2 by latitude
+
+    # Among northern corners, westernmost = NW, easternmost = NE
+    nw_idx, nw = min(north, key=lambda x: x[1][1])
+    ne_idx, ne = max(north, key=lambda x: x[1][1])
+
+    # Among southern corners, westernmost = SW, easternmost = SE
+    sw_idx, sw = min(south, key=lambda x: x[1][1])
+    se_idx, se = max(south, key=lambda x: x[1][1])
+
+    # Reorder coords to: NW, NE, SE, SW (matching output corners)
+    ordered_coords = [nw, ne, se, sw]
+
+    # ── Compute source pixel coords for each rectangle corner ──────────
+    # Source image: [lon_min, lat_min] (bottom-left) to [lon_max, lat_max] (top-right)
+    # Pixel mapping: px = (lon - lon_min)/(lon_max - lon_min) * src_w
+    #                py = (lat_max - lat)/(lat_max - lat_min) * src_h
+    src_pixels = []
+    for lat, lon in ordered_coords:
+        px = (lon - lon_min) / (lon_max - lon_min) * src_w
+        py = (lat_max - lat) / (lat_max - lat_min) * src_h
+        src_pixels.append((px, py))
+
+    # Output corners in image space (0,0 is top-left)
+    dst_corners = [
+        (0,           0),            # NW
+        (out_w - 1,   0),            # NE
+        (out_w - 1,   out_h - 1),    # SE
+        (0,           out_h - 1),    # SW
+    ]
+
+    # Compute perspective coefficients using least squares
+    # We solve for the 3x3 homography matrix that maps src → dst
+    # PIL.Image.PERSPECTIVE expects: [a, b, c, d, e, f, g, h] where:
+    #   x' = (a*x + b*y + c) / (g*x + h*y + 1)
+    #   y' = (d*x + e*y + f) / (g*x + h*y + 1)
+
+    import numpy as np
+
+    print(f"\n[2/3] Perspective-warping to straighten...")
+
+    # Build the linear system for each dst→src pair
+    # PIL.PERSPECTIVE maps output coords → source coords, so we solve
+    # for coefficients that map dst → src (not src → dst)
+    A_rows = []
+    b_rows = []
+    for (sx, sy), (dx, dy) in zip(src_pixels, dst_corners):
+        A_rows.append([dx, dy, 1, 0,  0,  0, -sx*dx, -sx*dy])
+        A_rows.append([0,  0,  0, dx, dy, 1, -sy*dx, -sy*dy])
+        b_rows.extend([sx, sy])
+
+    A = np.array(A_rows, dtype=np.float64)
+    b = np.array(b_rows, dtype=np.float64)
+    coeffs = np.linalg.lstsq(A, b, rcond=None)[0]
+    coeffs = coeffs.tolist()  # [a, b, c, d, e, f, g, h]
+
+    warped = mosaic.transform(
+        (out_w, out_h),
+        Image.PERSPECTIVE,
+        coeffs,
+        Image.BICUBIC,
+    )
+
+    # ── Geo-reference and save ─────────────────────────────────────────
+    print(f"\n[3/3] Writing {args.output}...")
     with tempfile.TemporaryDirectory() as tmp:
-        # Save mosaic as raw GeoTIFF
         raw_tif = os.path.join(tmp, "raw.tif")
-        mosaic.save(raw_tif)
+        warped.save(raw_tif)
 
-        # Geo-reference it
-        georef_tif = os.path.join(tmp, "georef.tif")
-        run_cmd([
-            "gdal_translate",
-            "-of", "GTiff",
-            "-a_srs", "EPSG:4326",
-            "-a_ullr", str(lon_min), str(lat_max), str(lon_max), str(lat_min),
-            raw_tif,
-            georef_tif,
-        ], "georeference")
+        # Compute output geo-bounds: the 4 corners of the output image
+        # correspond to the original rectangle corners in geographic space.
+        # Output top-left = coords[1] (NW), bottom-right = coords[3] (SE)
+        # ... but after warping, the corners ARE the rectangle corners.
+        # We just need the lat/lon range of the rectangle for georeferencing.
+        out_lats = [c[0] for c in coords]
+        out_lons = [c[1] for c in coords]
+        out_lon_min = min(out_lons)
+        out_lon_max = max(out_lons)
+        out_lat_min = min(out_lats)
+        out_lat_max = max(out_lats)
 
-        # ── Add GCPs to the image, then warp ────────────────────────────
-        print(f"\n[2/3] Adding GCPs and warping...")
-        gcp_corners = coords
-        gcp_pixel = [
-            (0,           0),
-            (0,           out_h - 1),
-            (out_w - 1,   out_h - 1),
-            (out_w - 1,   0),
-        ]
-
-        gcp_args = []
-        for (lat, lon), (px, py) in zip(gcp_corners, gcp_pixel):
-            gcp_args.extend(["-gcp", str(px), str(py), str(lon), str(lat)])
-
-        # Step 2a: attach GCP metadata to the georeferenced image
-        with_gcp_tif = os.path.join(tmp, "with_gcp.tif")
-        run_cmd([
-            "gdal_translate",
-            "-of", "GTiff",
-            *gcp_args,
-            georef_tif,
-            with_gcp_tif,
-        ], "add GCPs")
-
-        # Step 2b: warp using those GCPs
-        straight_tif = os.path.join(tmp, "straight.tif")
-        run_cmd([
-            "gdalwarp",
-            "-r", "lanczos",
-            "-t_srs", "EPSG:4326",
-            "-order", "1",
-            "-ts", str(out_w), str(out_h),
-            with_gcp_tif,
-            straight_tif,
-        ], "warp")
-
-        # ── Final output ─────────────────────────────────────────────────
-        print(f"\n[3/3] Writing {args.output}...")
         if args.output.endswith(".png"):
             run_cmd([
                 "gdal_translate", "-of", "PNG",
+                "-a_srs", "EPSG:4326",
+                "-a_ullr", str(out_lon_min), str(out_lat_max),
+                            str(out_lon_max), str(out_lat_min),
                 "-outsize", str(out_w), str(out_h),
-                straight_tif, args.output,
+                raw_tif, args.output,
             ], "to PNG")
         else:
             run_cmd([
                 "gdal_translate", "-of", "GTiff",
                 "-co", "COMPRESS=LZW",
+                "-a_srs", "EPSG:4326",
+                "-a_ullr", str(out_lon_min), str(out_lat_max),
+                            str(out_lon_max), str(out_lat_min),
                 "-outsize", str(out_w), str(out_h),
-                straight_tif, args.output,
+                raw_tif, args.output,
             ], "to GeoTIFF")
 
     size_mb = os.path.getsize(args.output) / (1024*1024)
