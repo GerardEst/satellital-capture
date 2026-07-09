@@ -265,6 +265,9 @@ function scaleCorners(cs, factor) {
 
 let handles = [];
 let rotHandle = null;
+let dragStartDist = 0;
+let dragStartAngle = 0;
+let dragStartCenter = null;
 
 function clearHandles() {
   handles.forEach(h => map.removeLayer(h));
@@ -275,55 +278,52 @@ function clearHandles() {
 function createHandles() {
   clearHandles();
   if (!corners) return;
-  // Corner resize handles
+  // Corner resize handles — scale proportionally from center
   corners.forEach((c, i) => {
     const m = L.marker(c, {
       draggable: true,
       icon: L.divIcon({ className: 'handle', iconSize: [12, 12] })
     }).addTo(map);
+    m.on('dragstart', () => {
+      dragStartCenter = rectCenter(corners);
+      dragStartDist = haversineM(dragStartCenter, c);
+    });
     m.on('drag', (e) => {
       const pos = e.target.getLatLng();
-      const opp = corners[(i + 2) % 4]; // opposite corner
-      const [lat, lon] = [pos.lat, pos.lng];
-      corners[i] = [lat, lon];
-      // Mirror the dragged corner: opposite stays fixed, adjacent corners
-      // maintain rectangle shape by adjusting along the dragged direction
-      const newCenter = [(lat + opp[0]) / 2, (lon + opp[1]) / 2];
-      const halfW = Math.abs(lon - newCenter[1]);
-      const halfH = Math.abs(lat - newCenter[0]);
-      const signLon = opp[1] > newCenter[1] ? 1 : -1;
-      const signLat = opp[0] > newCenter[0] ? 1 : -1;
-      corners = [
-        [newCenter[0] - signLat * halfH, newCenter[1] - signLon * halfW],
-        [newCenter[0] - signLat * halfH, newCenter[1] + signLon * halfW],
-        [newCenter[0] + signLat * halfH, newCenter[1] + signLon * halfW],
-        [newCenter[0] + signLat * halfH, newCenter[1] - signLon * halfW],
-      ];
-      refreshFromCorners();
+      const newDist = haversineM(dragStartCenter, [pos.lat, pos.lng]);
+      if (dragStartDist > 0.0001) {
+        corners = scaleCorners(corners, newDist / dragStartDist);
+        refreshFromCorners();
+      }
     });
-    m.on('dragend', () => createHandles()); // reposition handles
+    m.on('dragend', () => createHandles());
     handles.push(m);
   });
-  // Rotation handle above center of top edge
-  const [cy, cx] = rectCenter(corners);
-  const topMid = [(corners[0][0] + corners[1][0]) / 2, (corners[0][1] + corners[1][1]) / 2];
-  // Offset the handle outward from the top edge
-  const edgeDir = [topMid[0] - cy, topMid[1] - cx];
-  const len = Math.sqrt(edgeDir[0]**2 + edgeDir[1]**2) || 1;
-  const rotPos = [topMid[0] + edgeDir[0] / len * 0.001, topMid[1] + edgeDir[1] / len * 0.001];
-  rotHandle = L.marker(rotPos, {
-    draggable: true,
-    icon: L.divIcon({ className: 'handle handle-rot', iconSize: [12, 12] })
-  }).addTo(map);
-  rotHandle.on('drag', (e) => {
-    const pos = e.target.getLatLng();
-    const angle = Math.atan2(pos.lat - cy, pos.lng - cx);
-    const origAngle = Math.atan2(topMid[0] - cy, topMid[1] - cx);
-    const deg = (angle - origAngle) * 180 / Math.PI;
-    corners = rotateCorners(corners, deg);
-    refreshFromCorners();
-  });
-  rotHandle.on('dragend', () => createHandles());
+  // Rotation handle — positioned outward from top edge
+  if (corners.length >= 4) {
+    const [cy, cx] = rectCenter(corners);
+    const topMid = [(corners[0][0] + corners[1][0]) / 2, (corners[0][1] + corners[1][1]) / 2];
+    const dx = topMid[1] - cx, dy = topMid[0] - cy;
+    const len = Math.sqrt(dx*dx + dy*dy) || 1;
+    const rotPos = [topMid[0] + dy / len * 0.0005, topMid[1] + dx / len * 0.0005];
+    rotHandle = L.marker(rotPos, {
+      draggable: true,
+      icon: L.divIcon({ className: 'handle handle-rot', iconSize: [12, 12] })
+    }).addTo(map);
+    rotHandle.on('dragstart', () => {
+      dragStartCenter = rectCenter(corners);
+      dragStartAngle = Math.atan2(rotPos[0] - dragStartCenter[0], rotPos[1] - dragStartCenter[1]);
+    });
+    rotHandle.on('drag', (e) => {
+      const pos = e.target.getLatLng();
+      const [cy2, cx2] = dragStartCenter;
+      const newAngle = Math.atan2(pos.lat - cy2, pos.lng - cx2);
+      const deg = (newAngle - dragStartAngle) * 180 / Math.PI;
+      corners = rotateCorners(corners, deg);
+      refreshFromCorners();
+    });
+    rotHandle.on('dragend', () => createHandles());
+  }
 }
 
 function refreshFromCorners() {
