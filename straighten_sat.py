@@ -24,13 +24,13 @@ The 4 coordinate pairs should go around the rectangle clockwise
 import argparse
 import math
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from io import BytesIO
 
-import numpy as np
 import requests
 from PIL import Image
 from osgeo import osr
@@ -298,7 +298,6 @@ def main():
 
     # ── Download & stitch tiles ─────────────────────────────────────────
     tile_size = 256
-    mosaic = Image.new("RGB", (nx * tile_size, ny * tile_size))
 
     # Build list of (url, x, y) for all tiles
     jobs = []
@@ -314,6 +313,9 @@ def main():
     print(f"\n[1/3] Downloading {len(jobs)} tiles "
           f"(parallel, {min(8, len(jobs))} workers)...", flush=True)
 
+    # Download tiles as individual GeoTIFFs with geo-referencing
+    tile_files = []
+    tmpdir = tempfile.mkdtemp()
     with ThreadPoolExecutor(max_workers=8) as pool:
         futures = {pool.submit(_download_tile, url, hdrs): (i, j)
                    for url, i, j in jobs}
@@ -322,7 +324,21 @@ def main():
             i, j = futures[f]
             tile = f.result()
             if tile is not None:
-                mosaic.paste(tile, (i * tile_size, j * tile_size))
+                # Compute tile geo bounds
+                lon_min_t, lat_min_t, lon_max_t, lat_max_t = tile_to_latlon(
+                    x0 + i, y0 + j, z)
+                tif = os.path.join(tmpdir, f"tile_{i}_{j}.tif")
+                tile.save(tif)
+                # Set georeferencing on the tile
+                subprocess.run([
+                    "gdal_translate", "-q",
+                    "-a_srs", "EPSG:4326",
+                    "-a_ullr", str(lon_min_t), str(lat_max_t),
+                               str(lon_max_t), str(lat_min_t),
+                    tif, tif + ".geo.tif"
+                ], check=True)
+                os.replace(tif + ".geo.tif", tif)
+                tile_files.append(tif)
             else:
                 print(f"\n  WARNING: tile at ({i},{j}) failed")
             done += 1
@@ -331,17 +347,21 @@ def main():
 
     print(" done.")
 
-    if sum(mosaic.getextrema()[0]) == 0:
-        print("  ERROR: all tiles are black — download likely failed.", file=sys.stderr)
+    if len(tile_files) == 0:
+        print("  ERROR: all tiles failed to download.", file=sys.stderr)
         sys.exit(1)
 
-    # ── Compute mosaic geo-bounds ───────────────────────────────────────
+    # ── Build VRT and warp ────────────────────────────────────────────
+    vrt = os.path.join(tmpdir, "mosaic.vrt")
+    run_cmd(["gdalbuildvrt", "-q", vrt] + tile_files, "build VRT")
+
+    # Inject GCPs into the VRT for perspective warp
     lon_min, lat_min, _, _ = tile_to_latlon(x0, y1, z)
     _, _, lon_max, lat_max = tile_to_latlon(x1, y0, z)
-    src_w, src_h = mosaic.size
+    src_w = nx * tile_size
+    src_h = ny * tile_size
     print(f"  Geo bounds: {lon_min:.6f},{lat_min:.6f} → {lon_max:.6f},{lat_max:.6f}")
 
-    # ── Output corners in image space ────────────────────────────────────
     dst_corners = [
         (0,           out_h - 1),
         (out_w - 1,   out_h - 1),
@@ -349,67 +369,40 @@ def main():
         (0,           0),
     ]
 
-    src_pixels = []
-    for lat, lon in coords:
+    gcp_list = []
+    for (lat, lon), (dx, dy) in zip(coords, dst_corners):
         px = (lon - lon_min) / (lon_max - lon_min) * src_w
         py = (lat_max - lat) / (lat_max - lat_min) * src_h
-        src_pixels.append((px, py))
+        gcp_list.append(f'      <GCP Id="" Pixel="{px:.6f}" Line="{py:.6f}" X="{dx}" Y="{dy}" />')
 
-    import numpy as np
+    # Patch the VRT to include GCPs
+    with open(vrt, "r") as f:
+        vrt_xml = f.read()
+    gcps_xml = "  <GCPList>\n" + "\n".join(gcp_list) + "\n  </GCPList>\n"
+    vrt_xml = vrt_xml.replace("</VRTRasterBand>", "</VRTRasterBand>\n" + gcps_xml)
+    with open(vrt, "w") as f:
+        f.write(vrt_xml)
 
-    print(f"\n[2/3] Perspective-warping to straighten...")
+    print(f"\n[2/3] Warping with {len(tile_files)} tiles...")
+    gdalwarp = shutil.which("gdalwarp") or "gdalwarp"
 
-    A_rows = []
-    b_rows = []
-    for (sx, sy), (dx, dy) in zip(src_pixels, dst_corners):
-        A_rows.append([dx, dy, 1, 0,  0,  0, -sx*dx, -sx*dy])
-        A_rows.append([0,  0,  0, dx, dy, 1, -sy*dx, -sy*dy])
-        b_rows.extend([sx, sy])
+    with tempfile.TemporaryDirectory() as outtmp:
+        warped = os.path.join(outtmp, "warped.tif")
+        run_cmd([
+            gdalwarp, "-q", "-overwrite", "-tps",
+            "-of", "GTiff", "-co", "COMPRESS=LZW",
+            vrt, warped,
+        ], "gdalwarp")
 
-    A = np.array(A_rows, dtype=np.float64)
-    b = np.array(b_rows, dtype=np.float64)
-    coeffs = np.linalg.lstsq(A, b, rcond=None)[0]
-    coeffs = coeffs.tolist()
-
-    warped = mosaic.transform(
-        (out_w, out_h),
-        Image.PERSPECTIVE,
-        coeffs,
-        Image.BICUBIC,
-    )
-
-    # ── Geo-reference and save ─────────────────────────────────────────
-    print(f"\n[3/3] Writing {args.output}...")
-    with tempfile.TemporaryDirectory() as tmp:
-        raw_tif = os.path.join(tmp, "raw.tif")
-        warped.save(raw_tif)
-
-        out_lats = [c[0] for c in coords]
-        out_lons = [c[1] for c in coords]
-        out_lon_min = min(out_lons)
-        out_lon_max = max(out_lons)
-        out_lat_min = min(out_lats)
-        out_lat_max = max(out_lats)
-
-        if args.output.endswith(".png"):
-            run_cmd([
-                "gdal_translate", "-of", "PNG",
-                "-a_srs", "EPSG:4326",
-                "-a_ullr", str(out_lon_min), str(out_lat_max),
-                            str(out_lon_max), str(out_lat_min),
-                "-outsize", str(out_w), str(out_h),
-                raw_tif, args.output,
-            ], "to PNG")
-        else:
-            run_cmd([
-                "gdal_translate", "-of", "GTiff",
-                "-co", "COMPRESS=LZW",
-                "-a_srs", "EPSG:4326",
-                "-a_ullr", str(out_lon_min), str(out_lat_max),
-                            str(out_lon_max), str(out_lat_min),
-                "-outsize", str(out_w), str(out_h),
-                raw_tif, args.output,
-            ], "to GeoTIFF")
+        out_fmt = "PNG" if args.output.endswith(".png") else "GTiff"
+        compress = ["-co", "COMPRESS=LZW"] if out_fmt == "GTiff" else []
+        run_cmd([
+            "gdal_translate", "-q",
+            "-of", out_fmt,
+            *compress,
+            "-outsize", str(out_w), str(out_h),
+            warped, args.output,
+        ], f"to {out_fmt}")
 
     size_mb = os.path.getsize(args.output) / (1024*1024)
     print(f"\n✓  {args.output}  ({size_mb:.1f} MB, {out_w}×{out_h} px)")
