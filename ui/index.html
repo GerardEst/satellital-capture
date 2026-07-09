@@ -223,8 +223,11 @@ function updateFromInput() {
   if (!userSetCrs) {
     const detected = detectCRSFromValues(raw);
     if (detected === 'utm') {
-      crsSelect.value = 'EPSG:32631';
-      crsNote.textContent = 'UTM detected — check zone above';
+      // Can't detect zone — leave user's current selection or default to 31N
+      if (!crsSelect.value || !crsSelect.value.startsWith('EPSG:326')) {
+        crsSelect.value = 'EPSG:32631';
+      }
+      crsNote.textContent = 'UTM detected — select your zone above';
     } else if (detected === 'EPSG:3857') {
       crsSelect.value = 'EPSG:3857';
       crsNote.textContent = 'Web Mercator detected';
