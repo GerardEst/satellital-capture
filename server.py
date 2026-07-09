@@ -89,7 +89,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
 
         coords = data.get("coords", "")
-        zoom = str(data.get("zoom", 19))
+        zoom = data.get("zoom")  # None = auto-compute; only pass if explicitly set
         width = str(data.get("width", 1200))
         source = data.get("source", "google")
         filename = data.get("filename", "capture.tif")
@@ -105,11 +105,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 sys.executable,
                 os.path.join(SCRIPT_DIR, "straighten_sat.py"),
                 "--coords", coords,
-                "--zoom", zoom,
                 "--width", width,
                 "--source", source,
                 "--output", outfile,
             ]
+            if zoom is not None:
+                cmd.extend(["--zoom", str(zoom)])
             if crs:
                 cmd.extend(["--crs", crs])
             r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
