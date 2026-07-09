@@ -272,10 +272,12 @@ def main():
     print(f"  Tiles:     {nx}×{ny} ({total_tiles} total) from ({x0},{y0}) to ({x1},{y1})")
 
     MAX_TILES = 1000
-    if total_tiles > MAX_TILES:
+    if total_tiles > MAX_TILES and args.zoom is None:
         print(f"  ERROR: {total_tiles} tiles exceeds limit of {MAX_TILES}. "
               f"Reduce the area or specify --width manually.", file=sys.stderr)
         sys.exit(1)
+    if total_tiles > MAX_TILES:
+        print(f"  Warning: {total_tiles} tiles may take a while (--zoom {z} is explicit)")
 
     # ── Download & stitch tiles ─────────────────────────────────────────
     tile_size = 256
