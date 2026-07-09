@@ -129,6 +129,30 @@ def reproject_coords(coords: list[tuple[float, float]], src_crs: str) -> list[tu
     return out
 
 
+def detect_crs(coords: list[tuple[float, float]]) -> str:
+    """Auto-detect CRS from coordinate value ranges.
+
+    Currently only detects EPSG:4326 (lat/lon). Other CRS like UTM and
+    Web Mercator overlap in value ranges for mid-latitude areas and
+    cannot be reliably distinguished — use --crs explicitly.
+    """
+    x_vals = [c[0] for c in coords]
+    y_vals = [c[1] for c in coords]
+
+    if all(-90 <= x <= 90 for x in x_vals) and \
+       all(-180 <= y <= 180 for y in y_vals):
+        return "EPSG:4326"
+
+    print("ERROR: Could not auto-detect coordinate system.", file=sys.stderr)
+    print("", file=sys.stderr)
+    print("Coordinates don't look like WGS 84 lat/lon.", file=sys.stderr)
+    print("Pass --crs to specify the input coordinate system:", file=sys.stderr)
+    print("  --crs EPSG:3857    Web Mercator", file=sys.stderr)
+    print("  --crs EPSG:32631   UTM zone 31N (adjust zone number)", file=sys.stderr)
+    print("  --crs EPSG:25831   ETRS89 / UTM 31N (Spain, Catalonia)", file=sys.stderr)
+    sys.exit(1)
+
+
 def haversine_m(p1: tuple, p2: tuple) -> float:
     """Haversine distance in metres between (lat, lon) pairs."""
     lat1, lon1 = math.radians(p1[0]), math.radians(p1[1])
@@ -179,15 +203,22 @@ def main():
                         help="Output width in pixels (auto if not set)")
     parser.add_argument("--source", choices=list(TILE_SOURCES), default="google",
                         help="Tile source (default: google)")
-    parser.add_argument("--crs", default="EPSG:4326",
-                        help="Input coordinate reference system (default: EPSG:4326). "
-                             "Anything gdaltransform accepts: EPSG:32631, EPSG:3857, WGS84, etc.")
+    parser.add_argument("--crs", default=None,
+                        help="Input CRS (auto-detected if omitted). "
+                             "Examples: EPSG:32631 (UTM 31N), EPSG:3857, EPSG:25831")
     args = parser.parse_args()
 
     coords = parse_coords(args.coords)
 
+    # Auto-detect CRS or use explicit flag
+    if args.crs is None:
+        crs = detect_crs(coords)
+        print(f"  Auto-detected CRS: {crs}")
+    else:
+        crs = args.crs
+
     # Reproject to WGS 84 if needed
-    coords = reproject_coords(coords, args.crs)
+    coords = reproject_coords(coords, crs)
     source = TILE_SOURCES[args.source]
     max_z = min(args.zoom, source["max_zoom"])
     z = max_z

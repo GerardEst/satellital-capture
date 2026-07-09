@@ -69,6 +69,21 @@ def test_parse_coords_wrong_count():
         straighten_sat.parse_coords("41.0,2.0 41.1,2.1")
 
 
+# ── Unit: detect_crs ────────────────────────────────────────────────────────
+
+def test_detect_wgs84():
+    """WGS 84 lat/lon should be auto-detected."""
+    coords = [(41.0, 2.0), (41.0, 2.001), (41.001, 2.001), (41.001, 2.0)]
+    assert straighten_sat.detect_crs(coords) == "EPSG:4326"
+
+
+def test_detect_non4326_exits():
+    """Non-WGS84 coords should exit with SystemExit."""
+    coords = [(431200.0, 4582345.0)] * 4
+    with pytest.raises(SystemExit):
+        straighten_sat.detect_crs(coords)
+
+
 # ── Integration: full CLI pipeline ─────────────────────────────────────────
 
 
@@ -132,3 +147,45 @@ def test_cli_help_shows_crs():
     )
     assert r.returncode == 0
     assert "--crs" in r.stdout
+
+
+@pytest.mark.integration
+def test_pipeline_autodetect_wgs84():
+    """WGS 84 without --crs should auto-detect and succeed."""
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+        out = f.name
+    try:
+        r = subprocess.run(
+            [
+                "python3",
+                os.path.join(os.path.dirname(__file__), "..", "straighten_sat.py"),
+                "--coords", "41.39,2.17 41.39,2.18 41.38,2.18 41.38,2.17",
+                "--output", out,
+                "--zoom", "16",
+                "--width", "200",
+            ],
+            capture_output=True, text=True, timeout=60,
+        )
+        assert r.returncode == 0, f"CLI failed: {r.stderr}"
+        assert "Auto-detected CRS: EPSG:4326" in r.stdout
+        assert os.path.getsize(out) > 0
+    finally:
+        os.unlink(out)
+
+
+@pytest.mark.integration
+def test_pipeline_non4326_no_crs_fails():
+    """Non-WGS84 without --crs should fail with helpful error."""
+    r = subprocess.run(
+        [
+            "python3",
+            os.path.join(os.path.dirname(__file__), "..", "straighten_sat.py"),
+            "--coords", "431200,4582345 431400,4582345 431400,4582145 431200,4582145",
+            "--output", os.devnull,
+            "--zoom", "16",
+            "--width", "200",
+        ],
+        capture_output=True, text=True, timeout=60,
+    )
+    assert r.returncode != 0
+    assert "--crs" in r.stderr

@@ -23,7 +23,7 @@ The 4 coordinate pairs go in order around the rectangle (e.g., SW → NW → NE 
 | `--zoom` | `19` | Tile detail (higher = sharper, max 22 for Google) |
 | `--width` | auto | Output width in px (height auto-calculated) |
 | `--source` | `google` | `google`, `esri`, `bing`, or `osm` |
-| `--crs` | `EPSG:4326` | Input CRS (anything `gdaltransform` accepts: `EPSG:32631`, `EPSG:3857`, etc.) |
+| `--crs` | auto | Input CRS. Auto-detects EPSG:4326 (lat/lon). For UTM or Web Mercator, pass explicitly: `EPSG:32631`, `EPSG:3857`, etc. |
 
 ## Requirements
 
