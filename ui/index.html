@@ -354,10 +354,6 @@ function refreshFromCorners() {
   drawnItems.clearLayers();
   L.polygon(corners, { color: '#e94560', weight: 2, fill: false }).addTo(drawnItems);
   coordsInput.value = corners.map(c => c[0].toFixed(6) + ',' + c[1].toFixed(6)).join(' ');
-  const lats = corners.map(c => c[0]), lons = corners.map(c => c[1]);
-  const center = [(Math.min(...lats) + Math.max(...lats)) / 2,
-                  (Math.min(...lons) + Math.max(...lons)) / 2];
-  map.panTo(center, { animate: false });
   const outW = parseInt(document.getElementById('width').value) || 1200;
   const widthM = haversineM(corners[0], corners[1]);
   const heightM = haversineM(corners[1], corners[2]);
