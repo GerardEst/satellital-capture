@@ -125,7 +125,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if crs:
                 cmd.extend(["--crs", crs])
             try:
-                r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+                r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
             except subprocess.TimeoutExpired:
                 self.send_error(504, "Capture timed out — reduce area or width")
                 return
