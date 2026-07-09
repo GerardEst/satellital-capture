@@ -206,7 +206,7 @@ def main():
     parser.add_argument(
         "--coords", required=True,
         help='4 corners as "x,y x,y x,y x,y" going around the rectangle. '
-             'For EPSG:4326 (default): lon,lat. For UTM: easting,northing.'
+             'For EPSG:4326: lat,lon. For UTM: easting,northing.'
     )
     parser.add_argument("--output", required=True, help="Output file (.tif or .png)")
     parser.add_argument("--zoom", type=int, default=None,
