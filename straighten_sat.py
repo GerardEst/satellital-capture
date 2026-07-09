@@ -173,9 +173,13 @@ def quadkey(tx: int, ty: int, zoom: int) -> str:
 
 
 def optimal_zoom(width_m: float, out_w: int, avg_lat: float) -> int:
-    """Compute the zoom level where tile resolution ≈ output resolution."""
+    """Compute zoom level with oversampling for better quality.
+
+    Multiplies target resolution by 2× so tiles are downloaded at
+    higher detail than output, then downscaled for cleaner results.
+    """
     target_mpp = width_m / out_w
-    equator_mpp = 156543.0 * math.cos(math.radians(avg_lat))
+    equator_mpp = 156543.0 * math.cos(math.radians(avg_lat)) * 2  # 2× oversample
     if target_mpp <= 0:
         return 22
     z = int(math.log2(equator_mpp / target_mpp))

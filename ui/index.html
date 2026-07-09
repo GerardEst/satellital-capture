@@ -261,7 +261,7 @@ function haversineM(a, b) {
 
 function computeZoomClient(widthM, outW, avgLat) {
   const target = widthM / outW;
-  const eq = 156543 * Math.cos(avgLat * Math.PI / 180);
+  const eq = 156543 * Math.cos(avgLat * Math.PI / 180) * 2;  // 2× oversample
   return Math.max(1, Math.min(22, Math.floor(Math.log2(eq / target))));
 }
 
