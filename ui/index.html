@@ -246,20 +246,29 @@ function rectCenter(cs) {
   return [cy, cx]; // [lat, lon]
 }
 
+// Project corners to a local meter grid around center, rotate, deproject
 function rotateCorners(cs, deg) {
   const [cy, cx] = rectCenter(cs);
+  const cosLat = Math.cos(cy * Math.PI / 180);
+  const mPerDegLat = 111320;
+  const mPerDegLon = 111320 * cosLat;
   const rad = deg * Math.PI / 180;
   const cos = Math.cos(rad), sin = Math.sin(rad);
   return cs.map(([lat, lon]) => {
-    const dy = lat - cy, dx = lon - cx;
-    return [cy + dx * sin + dy * cos, cx + dx * cos - dy * sin];
+    const dx = (lon - cx) * mPerDegLon;
+    const dy = (lat - cy) * mPerDegLat;
+    return [
+      cy + (dy * cos - dx * sin) / mPerDegLat,
+      cx + (dx * cos + dy * sin) / mPerDegLon,
+    ];
   });
 }
 
 function scaleCorners(cs, factor) {
   const [cy, cx] = rectCenter(cs);
   return cs.map(([lat, lon]) => [
-    cy + (lat - cy) * factor, cx + (lon - cx) * factor
+    cy + (lat - cy) * factor,
+    cx + (lon - cx) * factor,
   ]);
 }
 
@@ -305,7 +314,7 @@ function createHandles() {
     const topMid = [(corners[0][0] + corners[1][0]) / 2, (corners[0][1] + corners[1][1]) / 2];
     const dx = topMid[1] - cx, dy = topMid[0] - cy;
     const len = Math.sqrt(dx*dx + dy*dy) || 1;
-    const rotPos = [topMid[0] + dy / len * 0.0005, topMid[1] + dx / len * 0.0005];
+    const rotPos = [topMid[0] + dy / len * 0.003, topMid[1] + dx / len * 0.003];
     rotHandle = L.marker(rotPos, {
       draggable: true,
       icon: L.divIcon({ className: 'handle handle-rot', iconSize: [12, 12] })
