@@ -440,7 +440,8 @@ function refreshFromCorners() {
   const heightM = haversineM(corners[1], corners[2]);
   const z = computeZoomClient(widthM, outW, (corners[0][0] + corners[2][0]) / 2);
   const outH = Math.round(outW * (heightM / widthM));
-  document.getElementById('zoomInfo').textContent = isDem() ? '' :
+  document.getElementById('zoomInfo').textContent = isDem() ?
+    ` · ${outH}px tall · ${widthM.toFixed(0)}×${heightM.toFixed(0)}m` :
     ` — zoom ${z} · ${outH}px tall · ${widthM.toFixed(0)}×${heightM.toFixed(0)}m`;
 }
 
@@ -564,7 +565,8 @@ async function centerMapFromServer(cs) {
     });
     if (!resp.ok) return;
     const b = await resp.json();
-    document.getElementById('zoomInfo').textContent =
+    document.getElementById('zoomInfo').textContent = isDem() ?
+      ` · ${b.height_px}px tall · ${b.width_m.toFixed(0)}×${b.height_m.toFixed(0)}m` :
       ` — zoom ${b.zoom} · ${b.height_px}px tall · ${b.width_m.toFixed(0)}×${b.height_m.toFixed(0)}m`;
     drawnItems.clearLayers();
     if (b.corners) {
@@ -646,8 +648,8 @@ document.getElementById('source').addEventListener('change', function() {
     map.removeLayer(currentTileLayer);
     currentTileLayer = layer.addTo(map);
   }
-  // Hide zoom info for DEM (fixed zoom 15)
-  document.getElementById('zoomInfo').style.display = this.value === 'dem' ? 'none' : '';
+  // Don't hide zoom info entirely (height/meters still shown)
+  document.getElementById('zoomInfo').style.display = '';
 });
 crsSelect.addEventListener('change', function() {
   userSetCrs = true;
