@@ -62,8 +62,8 @@ button:disabled { background: #555; cursor: not-allowed; }
   <p>Paste coordinates or draw a rectangle on the map.</p>
 
   <label>Coordinates <button id="drawBtn" type="button" style="width:auto;padding:4px 12px;font-size:11px;background:#333;border:1px solid #555;border-radius:4px;margin-left:auto">Draw the area</button></label>
-  <textarea id="coordsInput" placeholder="lat1,lon1 lat2,lon2 lat3,lon3 lat4,lon4&#10;e.g. 41.39,2.17 41.39,2.18 41.38,2.18 41.38,2.17" spellcheck="false"></textarea>
-  <div class="coord-hint">4 pairs going around the rectangle: x,y x,y x,y x,y</div>
+  <textarea id="coordsInput" placeholder="lat1,lon1 lat2,lon2 lat3,lon3 lat4,lon4&#10;e.g. 41.38,2.17 41.38,2.18 41.39,2.18 41.39,2.17" spellcheck="false"></textarea>
+  <div class="coord-hint">4 pairs clockwise: SW → SE → NE → NW</div>
 
   <label>Coordinate system</label>
   <div class="crs-row">
@@ -659,7 +659,7 @@ map.on(L.Draw.Event.CREATED, function(e) {
   drawnItems.addLayer(e.layer);
   const bounds = e.layer.getBounds();
   const sw = bounds.getSouthWest(), ne = bounds.getNorthEast();
-  corners = [[sw.lat, sw.lng], [ne.lat, sw.lng], [ne.lat, ne.lng], [sw.lat, ne.lng]];
+  corners = [[sw.lat, sw.lng], [sw.lat, ne.lng], [ne.lat, ne.lng], [ne.lat, sw.lng]];
   coordsInput.value = corners.map(c => c[0].toFixed(6) + ',' + c[1].toFixed(6)).join(' ');
   coordsInput.classList.remove('invalid');
   crsSelect.value = '';

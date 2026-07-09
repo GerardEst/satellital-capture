@@ -12,7 +12,7 @@ python3 straighten_sat.py \
   --output result.tif
 ```
 
-The 4 coordinate pairs go in order around the rectangle (e.g., SW → NW → NE → SE).
+The 4 coordinate pairs should go around the rectangle clockwise (e.g., SW → SE → NE → NW).
 
 ## Options
 

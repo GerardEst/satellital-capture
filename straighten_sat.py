@@ -17,8 +17,8 @@ Usage:
     --coords "lat1,lon1 lat2,lon2 lat3,lon3 lat4,lon4" \
     --output result.png --width 800
 
-The 4 coordinate pairs should go in order around the rectangle
-(e.g., SW, NW, NE, SE — any start corner is fine as long as they go around).
+The 4 coordinate pairs should go around the rectangle clockwise
+(e.g., SW → SE → NE → NW — any start corner is fine as long as they go clockwise).
 """
 
 import argparse
@@ -216,7 +216,7 @@ def main():
     )
     parser.add_argument(
         "--coords", required=True,
-        help='4 corners as "x,y x,y x,y x,y" going around the rectangle. '
+        help='4 corners as "x,y x,y x,y x,y" going around the rectangle clockwise. '
              'For EPSG:4326: lat,lon. For UTM: easting,northing.'
     )
     parser.add_argument("--output", required=True, help="Output file (.tif or .png)")
@@ -343,10 +343,10 @@ def main():
 
     # ── Output corners in image space ────────────────────────────────────
     dst_corners = [
-        (0,           out_h - 1),  # bottom-left  → coords[0] (SW)
-        (0,           0),          # top-left     → coords[1] (NW)
-        (out_w - 1,   0),          # top-right    → coords[2] (NE)
-        (out_w - 1,   out_h - 1),  # bottom-right → coords[3] (SE)
+        (0,           out_h - 1),
+        (out_w - 1,   out_h - 1),
+        (out_w - 1,   0),
+        (0,           0),
     ]
 
     src_pixels = []
