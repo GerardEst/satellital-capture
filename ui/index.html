@@ -49,8 +49,8 @@ button:disabled { background: #555; cursor: not-allowed; }
 .zone-item:hover { color: #e94560; }
 .zone-item .zn { color: #e94560; font-weight: 600; width: 55px; }
 .zone-item .zl { color: #888; font-size: 11px; }
-.tf-btn { width: auto; padding: 2px 8px; font-size: 11px; background: #222; border: 1px solid #444; border-radius: 3px; color: #ccc; cursor: pointer; }
-.tf-btn:hover { background: #e94560; color: white; border-color: #e94560; }
+.handle { width: 12px; height: 12px; background: #e94560; border: 2px solid white; border-radius: 50%; cursor: pointer; }
+.handle-rot { background: #4ecca3; border-radius: 2px; transform: rotate(45deg); }
 </style>
 </head>
 <body>
@@ -105,20 +105,6 @@ button:disabled { background: #555; cursor: not-allowed; }
   <button id="captureBtn" disabled>Paste coordinates or draw a rectangle</button>
 
   <div id="status" class="info">Ready — paste coordinates or draw on the map.</div>
-  <div id="transformBar" style="display:none;flex-wrap:wrap;gap:6px">
-    <span style="font-size:11px;color:#888">Rotate:</span>
-    <button class="tf-btn" data-rot="-45">-45°</button>
-    <button class="tf-btn" data-rot="-15">-15°</button>
-    <button class="tf-btn" data-rot="-5">-5°</button>
-    <button class="tf-btn" data-rot="5">+5°</button>
-    <button class="tf-btn" data-rot="15">+15°</button>
-    <button class="tf-btn" data-rot="45">+45°</button>
-    <span style="font-size:11px;color:#888;margin-left:8px">Scale:</span>
-    <button class="tf-btn" data-scale="0.75">0.75×</button>
-    <button class="tf-btn" data-scale="0.9">0.9×</button>
-    <button class="tf-btn" data-scale="1.1">1.1×</button>
-    <button class="tf-btn" data-scale="1.5">1.5×</button>
-  </div>
   <a id="download" href="#" download>Download result</a>
 </div>
 
@@ -205,7 +191,6 @@ const utmHemisphere = document.getElementById('utmHemisphere');
 const zoneNameEl = document.getElementById('zoneName');
 const captureBtn = document.getElementById('captureBtn');
 const statusEl = document.getElementById('status');
-const transformBar = document.getElementById('transformBar');
 
 function updateZonePicker() {
   const crs = crsSelect.value;
@@ -253,7 +238,7 @@ zoneList.addEventListener('click', (e) => {
   updateFromInput();
 });
 
-// ── Rectangle transform controls ──────────────────────────────────────
+// ── Rectangle drag handles (resize corners + rotation handle) ──────────
 
 function rectCenter(cs) {
   const cx = cs.reduce((s, c) => s + c[1], 0) / cs.length;
@@ -278,6 +263,69 @@ function scaleCorners(cs, factor) {
   ]);
 }
 
+let handles = [];
+let rotHandle = null;
+
+function clearHandles() {
+  handles.forEach(h => map.removeLayer(h));
+  handles = [];
+  if (rotHandle) { map.removeLayer(rotHandle); rotHandle = null; }
+}
+
+function createHandles() {
+  clearHandles();
+  if (!corners) return;
+  // Corner resize handles
+  corners.forEach((c, i) => {
+    const m = L.marker(c, {
+      draggable: true,
+      icon: L.divIcon({ className: 'handle', iconSize: [12, 12] })
+    }).addTo(map);
+    m.on('drag', (e) => {
+      const pos = e.target.getLatLng();
+      const opp = corners[(i + 2) % 4]; // opposite corner
+      const [lat, lon] = [pos.lat, pos.lng];
+      corners[i] = [lat, lon];
+      // Mirror the dragged corner: opposite stays fixed, adjacent corners
+      // maintain rectangle shape by adjusting along the dragged direction
+      const newCenter = [(lat + opp[0]) / 2, (lon + opp[1]) / 2];
+      const halfW = Math.abs(lon - newCenter[1]);
+      const halfH = Math.abs(lat - newCenter[0]);
+      const signLon = opp[1] > newCenter[1] ? 1 : -1;
+      const signLat = opp[0] > newCenter[0] ? 1 : -1;
+      corners = [
+        [newCenter[0] - signLat * halfH, newCenter[1] - signLon * halfW],
+        [newCenter[0] - signLat * halfH, newCenter[1] + signLon * halfW],
+        [newCenter[0] + signLat * halfH, newCenter[1] + signLon * halfW],
+        [newCenter[0] + signLat * halfH, newCenter[1] - signLon * halfW],
+      ];
+      refreshFromCorners();
+    });
+    m.on('dragend', () => createHandles()); // reposition handles
+    handles.push(m);
+  });
+  // Rotation handle above center of top edge
+  const [cy, cx] = rectCenter(corners);
+  const topMid = [(corners[0][0] + corners[1][0]) / 2, (corners[0][1] + corners[1][1]) / 2];
+  // Offset the handle outward from the top edge
+  const edgeDir = [topMid[0] - cy, topMid[1] - cx];
+  const len = Math.sqrt(edgeDir[0]**2 + edgeDir[1]**2) || 1;
+  const rotPos = [topMid[0] + edgeDir[0] / len * 0.001, topMid[1] + edgeDir[1] / len * 0.001];
+  rotHandle = L.marker(rotPos, {
+    draggable: true,
+    icon: L.divIcon({ className: 'handle handle-rot', iconSize: [12, 12] })
+  }).addTo(map);
+  rotHandle.on('drag', (e) => {
+    const pos = e.target.getLatLng();
+    const angle = Math.atan2(pos.lat - cy, pos.lng - cx);
+    const origAngle = Math.atan2(topMid[0] - cy, topMid[1] - cx);
+    const deg = (angle - origAngle) * 180 / Math.PI;
+    corners = rotateCorners(corners, deg);
+    refreshFromCorners();
+  });
+  rotHandle.on('dragend', () => createHandles());
+}
+
 function refreshFromCorners() {
   drawnItems.clearLayers();
   L.polygon(corners, { color: '#e94560', weight: 2, fill: false }).addTo(drawnItems);
@@ -296,22 +344,9 @@ function refreshFromCorners() {
     ` — zoom ${z} · ${outH}px tall · ${widthM.toFixed(0)}×${heightM.toFixed(0)}m`;
 }
 
-drawnItems.on('click', (e) => {
-  L.DomEvent.stopPropagation(e);
-  transformBar.style.display = 'flex';
-});
-map.on('click', () => { transformBar.style.display = 'none'; });
-
-transformBar.addEventListener('click', (e) => {
-  L.DomEvent.stopPropagation(e);
-  const btn = e.target.closest('.tf-btn');
-  if (!btn || !corners) return;
-  const key = btn.dataset.rot ? 'rot' : 'scale';
-  const val = btn.dataset.rot || btn.dataset.scale;
-  corners = key === 'rot' ? rotateCorners(corners, parseFloat(val))
-                          : scaleCorners(corners, parseFloat(val));
-  refreshFromCorners();
-});
+// Show handles when polygon is drawn, hide on map click elsewhere
+const handleGroup = new L.FeatureGroup();
+map.addLayer(handleGroup);
 
 // Build EPSG code from selections
 function getCrs() {
@@ -409,6 +444,7 @@ function drawFromCoords(cs) {
     const z = computeZoomClient(widthM, outW, (cs[0][0] + cs[2][0]) / 2);
     document.getElementById('zoomInfo').textContent =
       ` — zoom ${z} · ${outH}px tall · ${widthM.toFixed(0)}×${heightM.toFixed(0)}m`;
+    createHandles();
   } else {
     centerMapFromServer(cs);
   }
@@ -440,6 +476,7 @@ async function centerMapFromServer(cs) {
     }
     const bounds = L.latLngBounds([b.south, b.west], [b.north, b.east]);
     map.fitBounds(bounds.pad(0.2));
+    createHandles();
   } catch (e) { /* non-critical */ }
 }
 
@@ -490,6 +527,7 @@ function updateFromInput() {
 function invalidate(msg) {
   coordsInput.classList.add('invalid');
   corners = null;
+  clearHandles();
   captureBtn.disabled = true;
   captureBtn.textContent = 'Paste coordinates or draw a rectangle';
   statusEl.textContent = msg;
@@ -535,7 +573,7 @@ map.on(L.Draw.Event.CREATED, function(e) {
   captureBtn.textContent = 'Capture';
   statusEl.className = 'info';
   statusEl.textContent = 'Area drawn — ready to capture.';
-  transformBar.style.display = 'flex';
+  createHandles();
 });
 
 drawBtn.addEventListener('click', () => {
@@ -546,7 +584,7 @@ drawBtn.addEventListener('click', () => {
   captureBtn.disabled = true;
   captureBtn.textContent = 'Capture';
   document.getElementById('zoomInfo').textContent = '';
-  transformBar.style.display = 'none';
+  clearHandles();
   statusEl.className = 'info';
   statusEl.textContent = 'Click and drag on the map to draw a rectangle.';
   drawBtn.disabled = true;
