@@ -317,9 +317,11 @@ function drawFromCoords(cs) {
     map.fitBounds(bounds.pad(0.2));
     const outW = parseInt(document.getElementById('width').value) || 1200;
     const widthM = haversineM(cs[0], cs[1]);
+    const heightM = haversineM(cs[1], cs[2]);
+    const outH = Math.round(outW * (heightM / widthM));
     const z = computeZoomClient(widthM, outW, (cs[0][0] + cs[2][0]) / 2);
     document.getElementById('zoomInfo').textContent =
-      ` — zoom ${z} (${widthM.toFixed(0)}m wide)`;
+      ` — zoom ${z} · ${outH}px tall · ${widthM.toFixed(0)}×${heightM.toFixed(0)}m`;
   } else {
     centerMapFromServer(cs);
   }
@@ -341,7 +343,7 @@ async function centerMapFromServer(cs) {
     if (!resp.ok) return;
     const b = await resp.json();
     document.getElementById('zoomInfo').textContent =
-      ` — zoom ${b.zoom} (${b.width_m.toFixed(0)}m wide)`;
+      ` — zoom ${b.zoom} · ${b.out_h}px tall · ${b.width_m.toFixed(0)}×${b.height_m.toFixed(0)}m`;
     drawnItems.clearLayers();
     if (b.corners) {
       L.polygon(b.corners, { color: '#e94560', weight: 2, fill: false }).addTo(drawnItems);
