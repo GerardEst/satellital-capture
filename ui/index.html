@@ -49,8 +49,10 @@ button:disabled { background: #555; cursor: not-allowed; }
 .zone-item:hover { color: #e94560; }
 .zone-item .zn { color: #e94560; font-weight: 600; width: 55px; }
 .zone-item .zl { color: #888; font-size: 11px; }
-.handle { width: 12px; height: 12px; background: #e94560; border: 2px solid white; border-radius: 50%; cursor: pointer; }
-.handle-rot { background: #4ecca3; border-radius: 2px; transform: rotate(45deg); }
+.handle { width: 12px; height: 12px; background: #e94560; border: 2px solid white; border-radius: 50%; cursor: nwse-resize; }
+.handle-rot { background: #4ecca3; border-radius: 2px; transform: rotate(45deg); cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath fill='none' stroke='%234ecca3' stroke-width='2' d='M12 2v4m0 12v4M2 12h4m12 0h4M5.6 5.6l2.8 2.8m7.2 7.2l2.8 2.8M5.6 18.4l2.8-2.8m7.2-7.2l2.8-2.8'/%3E%3C/svg%3E") 12 12, pointer; }
+#drawBtn:hover { background: #e94560; color: white; border-color: #e94560; }
+.drag-cursor { cursor: grab !important; }
 </style>
 </head>
 <body>
@@ -383,6 +385,7 @@ drawnItems.on('mousedown', (e) => {
   isDraggingPoly = true;
   dragStartMouse = e.containerPoint;
   dragStartCorners = [...corners.map(p => [...p])];
+  map.getContainer().style.cursor = 'grabbing';
   map.dragging.disable();
 });
 
@@ -416,6 +419,7 @@ map.on('mouseup', () => {
   if (!isDraggingPoly) return;
   isDraggingPoly = false;
   dragStartMouse = null;
+  map.getContainer().style.cursor = '';
   map.dragging.enable();
   if (corners) {
     coordsInput.value = corners.map(c => c[0].toFixed(6) + ',' + c[1].toFixed(6)).join(' ');
@@ -425,7 +429,10 @@ map.on('mouseup', () => {
 
 function refreshFromCorners() {
   drawnItems.clearLayers();
-  L.polygon(corners, { color: '#e94560', weight: 2, fill: true, fillOpacity: 0.01 }).addTo(drawnItems);
+  L.polygon(corners, {
+    color: '#e94560', weight: 2, fill: true, fillOpacity: 0.01,
+    className: 'drag-cursor'
+  }).addTo(drawnItems);
   coordsInput.value = corners.map(c => c[0].toFixed(6) + ',' + c[1].toFixed(6)).join(' ');
   const outW = parseInt(document.getElementById('width').value) || 1200;
   const widthM = haversineM(corners[0], corners[1]);
