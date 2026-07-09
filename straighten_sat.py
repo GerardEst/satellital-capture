@@ -32,6 +32,7 @@ from io import BytesIO
 import requests
 from PIL import Image
 from osgeo import osr
+osr.UseExceptions()  # suppress GDAL 4.0 FutureWarning
 
 # ── Tile sources ────────────────────────────────────────────────────────────
 
