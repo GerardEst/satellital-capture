@@ -338,7 +338,7 @@ function createHandles() {
     // Draw gizmo circle at center
     rotCircle = L.circle([cy, cx], {
       radius: haversineM([cy, cx], [rotPos.lat, rotPos.lng]),
-      color: '#e94560', weight: 1.5, opacity: 0.35, fillOpacity: 0.05, interactive: false
+      color: '#4ecca3', weight: 2, opacity: 0.7, fillOpacity: 0.08, interactive: false
     }).addTo(map);
     rotHandle = L.marker(rotPos, {
       draggable: true,
